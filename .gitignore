@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.test-artifacts/
+*.local
+*.backup.json
+pitchwork-backup-*.json
+.env*
+!.env.example
+__pycache__/
