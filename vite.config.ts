@@ -24,5 +24,5 @@ export default defineConfig({
       navigateFallback: 'index.html',
     },
   })],
-  test: { environment: 'node', setupFiles: ['src/test-setup.ts'] },
+  test: { exclude: ['**/node_modules/**', '**/.test-artifacts/**'], environment: 'node', setupFiles: ['src/test-setup.ts'] },
 })

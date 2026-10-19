@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { metrics, project, type PitchType, type Session, type SessionEvent } from './domain'
 
-const session: Session = { id: 'session', name: '', notes: '', startedAt: '2026-10-18T12:00:00Z', updatedAt: '2026-10-18T12:00:00Z', endedAt: null, status: 'active', initialPitcherId: 'p1', initialAppearanceId: 'a1', selectedPitcherId: 'p1', pitcherIds: ['p1'], nextSequence: 1 }
+const session: Session = { teamId: null, recorderId: 'local', deviceId: 'local', revision: 0, id: 'session', name: '', notes: '', startedAt: '2026-10-18T12:00:00Z', updatedAt: '2026-10-18T12:00:00Z', endedAt: null, status: 'active', initialPitcherId: 'p1', initialAppearanceId: 'a1', selectedPitcherId: 'p1', pitcherIds: ['p1'], nextSequence: 1 }
 function pitches(...types: PitchType[]): SessionEvent[] {
   return types.map((pitchType, index) => ({ id: `e${index}`, sessionId: session.id, pitcherId: 'p1', appearanceId: 'a1', sequence: index + 1, timestamp: session.startedAt, nextAppearanceId: `after-${index}`, kind: 'pitch', pitchType, voidedAt: null }))
 }

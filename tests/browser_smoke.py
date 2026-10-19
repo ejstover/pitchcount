@@ -1,11 +1,13 @@
 """Browser acceptance checks. Run against an existing dev or preview server.
 
 Requires Python Playwright and its Chromium browser, separate from app dependencies.
+Use the mocked Supabase Vite environment documented in tests/auth_mock.py.
 Example: python tests/browser_smoke.py
 """
 import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
+from auth_mock import install, COACH_ID, TEAM_ID
 
 BASE_URL = os.environ.get('PITCHWORK_BASE_URL', 'http://127.0.0.1:5173')
 ARTIFACTS = Path(__file__).resolve().parents[1] / '.test-artifacts'
@@ -14,6 +16,10 @@ ARTIFACTS.mkdir(exist_ok=True)
 
 def exercise(browser, label):
     context = browser.new_context(viewport={'width': 1440, 'height': 1000})
+    backend = install(context, role='admin')
+    stamp = '2026-10-19T12:00:00Z'
+    backend.data['teams'] = [{'id': TEAM_ID, 'name': 'Falcons', 'createdAt': stamp, 'updatedAt': stamp}]
+    backend.data['teamCoaches'] = [{'teamId': TEAM_ID, 'coachId': COACH_ID}]
     context.add_init_script("Object.defineProperty(crypto, 'randomUUID', {value: undefined, configurable: true})")
     page = context.new_page()
     errors = []
@@ -28,14 +34,14 @@ def exercise(browser, label):
         expect(page.get_by_role('status')).to_have_text('Saved on device')
 
     def nav(name):
-        page.get_by_role('navigation').get_by_role('button', name=name, exact=True).click()
+        page.get_by_role('navigation').get_by_role('button', name='Roster' if name == 'Pitchers' else name, exact=True).click()
 
     def count(balls, strikes):
         expect(page.locator('.count-numbers').get_by_label(f'{balls} balls', exact=True)).to_be_visible()
         expect(page.locator('.count-numbers').get_by_label(f'{strikes} strikes', exact=True)).to_be_visible()
 
     def pitch(kind):
-        page.locator(f'.pitch-{kind}').click()
+        page.locator(f'.pitch-{kind} .pitch-location-middle').click()
         saved()
 
     def block_writes(store):
@@ -59,18 +65,14 @@ def exercise(browser, label):
     expect(dialog.get_by_label('Pitcher name')).to_be_focused()
     dialog.get_by_label('Pitcher name').fill('Jordan Lee')
     dialog.get_by_label('Jersey number').fill('14')
-    dialog.get_by_label('Team').fill('Falcons')
-    block_writes('pitchers')
+    dialog.get_by_label('Falcons', exact=True).check()
     dialog.get_by_role('button', name='Add pitcher', exact=True).click()
-    expect(dialog.get_by_role('alert')).to_contain_text('Couldn’t save your changes.')
-    page.evaluate('window.restoreTransactions()')
-    dialog.get_by_role('button', name='Retry', exact=True).click()
     saved()
     nav('Pitchers')
     page.get_by_role('button', name='Add pitcher', exact=True).click()
     dialog.get_by_label('Pitcher name').fill('Morgan Diaz')
     dialog.get_by_label('Jersey number').fill('7')
-    dialog.get_by_label('Team').fill('Falcons')
+    dialog.get_by_label('Falcons', exact=True).check()
     dialog.get_by_role('button', name='Add pitcher', exact=True).click()
     saved()
     expect(page.locator('.pitcher-card')).to_have_count(2)
@@ -87,7 +89,7 @@ def exercise(browser, label):
     # Dispatch rapid taps before waiting for saves to exercise ordering.
     page.evaluate("""() => {
         for (const kind of ['ball', 'called', 'foul', 'foul'])
-            document.querySelector('.pitch-' + kind).click();
+            document.querySelector('.pitch-' + kind + ' .pitch-location-middle').click();
     }""")
     saved()
     count(1, 2)
@@ -109,6 +111,7 @@ def exercise(browser, label):
 
     page.get_by_role('button', name='Record swinging strike').click()
     saved()
+    expect(page.locator('.pitch-log li').first).to_contain_text('Not recorded')
     count(0, 0)
     expect(page.locator('.mini-stats')).to_contain_text('1')
     page.get_by_role('button', name='Undo last pitch').click()
@@ -137,7 +140,8 @@ def exercise(browser, label):
 
     page.get_by_role('button', name='Pause', exact=True).click()
     saved()
-    expect(page.locator('.pitch-ball')).to_be_disabled()
+    for target in page.locator('.pitch-target').all():
+        expect(target).to_be_disabled()
     page.reload()
     saved()
     expect(page.get_by_text('Practice paused.', exact=False)).to_be_visible()
@@ -157,15 +161,17 @@ def exercise(browser, label):
 
     # Simulate a disk failure, restore storage, and verify Retry saves only once.
     block_writes('appearances')
-    page.locator('.pitch-called').click()
+    page.locator('.pitch-called .pitch-location-upIn').click()
     expect(page.get_by_role('alert')).to_contain_text('Couldn’t save your changes.')
     count(0, 0)
-    expect(page.locator('.pitch-ball')).to_be_disabled()
+    for target in page.locator('.pitch-target').all():
+        expect(target).to_be_disabled()
     page.evaluate('window.restoreTransactions()')
     page.get_by_role('button', name='Retry', exact=True).click()
     saved()
     expect(page.get_by_role('alert')).to_have_count(0)
     count(0, 1)
+    expect(page.locator('.pitch-log li').first).to_contain_text('Up and in')
     context.set_offline(True)
     pitch('ball')
     count(1, 1)
@@ -179,6 +185,10 @@ def exercise(browser, label):
 
     nav('Pitchers')
     jordan = page.locator('.pitcher-card').filter(has=page.get_by_role('heading', name='Jordan Lee'))
+    page.get_by_role('button', name='Edit Jordan Lee', exact=True).click()
+    dialog.get_by_label('Falcons', exact=True).uncheck()
+    dialog.get_by_role('button', name='Save changes', exact=True).click()
+    saved()
     jordan.get_by_role('button', name='Archive', exact=True).click()
     saved()
     expect(page.locator('.pitcher-card')).to_have_count(1)

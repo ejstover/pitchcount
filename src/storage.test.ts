@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { metrics, project } from './domain'
+import { metrics, pitchLocations, project, type PitchLocation, type PitchType } from './domain'
 import { PitchDatabase, Repository } from './storage'
 
 let db: PitchDatabase
@@ -9,7 +9,7 @@ let sessionId: string
 beforeEach(async () => {
   db = new PitchDatabase(`pitchwork-test-${crypto.randomUUID()}`)
   repo = new Repository(db)
-  await repo.savePitcher({ name: 'Jordan Lee', jersey: '14', teamName: 'Falcons' })
+  await repo.savePitcher({ name: 'Jordan Lee', jersey: '14', teamIds: [await repo.saveTeam({ name: 'Falcons' })] })
   pitcherId = (await db.pitchers.toArray())[0].id
   sessionId = await repo.startSession(pitcherId, 'Sunday bullpen')
 })
@@ -21,6 +21,29 @@ async function current() {
 async function stats() { return metrics((await current()).appearances) }
 
 describe('persistent repository', () => {
+  it.each((['ball', 'called', 'foul', 'inPlay'] as PitchType[]).flatMap(type => pitchLocations.map(location => [type, location] as const)))('records exactly one %s pitch at %s', async (type, location) => {
+    await repo.act(sessionId, 'pitch', type, location)
+    expect(await db.events.toArray()).toEqual([expect.objectContaining({ pitchType: type, pitchLocation: location, sequence: 1, pitcherId })])
+    expect((await stats()).total).toBe(1)
+  })
+  it('preserves queued locations, including undone pitches, after reopening', async () => {
+    await Promise.all(pitchLocations.map(location => repo.act(sessionId, 'pitch', 'ball', location)))
+    await repo.act(sessionId, 'undo')
+    const databaseName = db.name
+    db.close(); db = new PitchDatabase(databaseName); repo = new Repository(db)
+    const events = (await db.events.toArray()).filter(e => e.kind === 'pitch').sort((a, b) => a.sequence - b.sequence)
+    expect(events.map(e => e.pitchLocation)).toEqual(pitchLocations)
+    expect(events.at(-1)?.voidedAt).toBeTruthy()
+    expect(await stats()).toMatchObject({ total: 4, walks: 1 })
+  })
+  it('rejects invalid locations and locations on non-pitch actions without changing data', async () => {
+    const before = await repo.snapshot()
+    await expect(repo.act(sessionId, 'pitch', 'ball', 'sideways' as PitchLocation)).rejects.toThrow('valid location')
+    for (const action of ['next', 'reset', 'switch', 'undo', 'pause', 'resume', 'end'] as const) {
+      await expect(repo.act(sessionId, action, undefined, 'middle')).rejects.toThrow('valid location')
+    }
+    expect(await repo.snapshot()).toEqual(before)
+  })
   it('commits each pitch and recovers session, count, notes, and events after reopening', async () => {
     await repo.act(sessionId, 'pitch', 'ball')
     await repo.act(sessionId, 'pitch', 'foul')
@@ -57,7 +80,7 @@ describe('persistent repository', () => {
     expect((await db.events.orderBy('[sessionId+sequence]').toArray()).map(e => e.sequence)).toEqual([1, 2, 3, 4, 5, 6])
   })
   it('switches to a fresh batter and returns to another fresh batter', async () => {
-    await repo.savePitcher({ name: 'Morgan', jersey: '', teamName: 'falcons' })
+    await repo.savePitcher({ name: 'Morgan', jersey: '', teamIds: [(await db.teams.toArray())[0].id] })
     const p2 = (await db.pitchers.toArray()).find(p => p.name === 'Morgan')!.id
     await repo.act(sessionId, 'pitch', 'ball')
     await repo.act(sessionId, 'pitch', 'called')
@@ -83,7 +106,7 @@ describe('persistent repository', () => {
     expect((await current()).current.pitches).toHaveLength(types.length - 1)
   })
   it('undo selects the original pitcher but preserves subsequent manual boundaries', async () => {
-    await repo.savePitcher({ name: 'Morgan', jersey: '', teamName: '' })
+    await repo.savePitcher({ name: 'Morgan', jersey: '', teamIds: [] })
     const p2 = (await db.pitchers.toArray()).find(p => p.id !== pitcherId)!.id
     await repo.act(sessionId, 'pitch', 'inPlay')
     await repo.act(sessionId, 'switch', p2)
@@ -125,7 +148,7 @@ describe('persistent repository', () => {
   })
   it('rejects invalid pitches and blank names without saving partial data', async () => {
     await expect(repo.act(sessionId, 'pitch', 'invalid')).rejects.toThrow('valid pitch')
-    await expect(repo.savePitcher({ name: '  ', jersey: '', teamName: 'Ghost team' })).rejects.toThrow('name')
+    await expect(repo.savePitcher({ name: '  ', jersey: '', teamIds: [] })).rejects.toThrow('name')
     expect(await db.events.count()).toBe(0)
     expect(await db.teams.count()).toBe(1)
   })

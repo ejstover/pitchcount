@@ -1,18 +1,18 @@
 # Pitchwork
 
-A mobile-first baseball and softball practice pitch tracker. Pitchwork runs entirely in your browser, with React, TypeScript, Vite, Tailwind CSS, and Dexie/IndexedDB. No account or backend is required. After one successful online setup, it can reopen and record practices offline.
+A mobile-first baseball and softball practice pitch tracker. Pitchwork uses React, TypeScript, Vite, Tailwind CSS, Dexie/IndexedDB, and Supabase. Admin-approved coaches sign in with Google, manage their assigned teams, and share team practice history. After signing in and downloading the roster online, coaches can reopen and record practices offline; saved pitches sync when connectivity returns.
 
 Production address: **https://count.twelvefs.com** (requires the GitHub Pages and DNS setup below).
 
 ## Use it on an iPhone
 
-1. Open **https://count.twelvefs.com** in Safari while online.
+1. Configure Supabase and Google sign-in using [the account setup guide](docs/AUTH.md), then open **https://count.twelvefs.com** in Safari while online.
 2. Use **Share → Add to Home Screen**. Choose **Open as Web App** if Safari offers that option.
 3. Launch Pitchwork from its home-screen icon while still online. Wait for **Ready offline** in the connection strip.
-4. Add your roster and start practice. Your PC does not need to be running.
+4. Sign in with your approved Google account, create or join a team, assign pitchers, and start practice. Your PC does not need to be running.
 5. In Settings, periodically **Download backup** and save the JSON file in Files or another location you can recover.
 
-The ordinary browser and installed web app may have separate storage. Install first, then create your roster inside the installed app. If you already have records in the browser or on your PC, use backup/restore to move them into the installed app.
+The ordinary browser and installed web app may have separate storage. Install first, then create your roster inside the installed app. Sign in with the same approved account to download shared records. Unsynced practices remain on their original recording device; reconnect that device to upload them.
 
 ### Verify on a physical iPhone
 
@@ -24,6 +24,7 @@ Use Node.js 22.12+ or Node.js 24 LTS and npm.
 
 ```sh
 npm install
+# Copy .env.example to .env.local and set the public Supabase URL/key.
 npm run dev
 ```
 
@@ -36,23 +37,23 @@ npm run build        # Type checks and production build into dist/
 npm run preview      # Serve the production build locally
 ```
 
-Optional browser acceptance checks use Python Playwright and its Chromium browser (not application dependencies). With the development server running, run `python tests/browser_smoke.py`. Set `PITCHWORK_BASE_URL` to test another server, such as the production preview. The script checks scoring, storage recovery, keyboard controls, and layouts at 320, 390, 768, and 1440 pixels. Screenshots go into the ignored `.test-artifacts/` directory.
+Browser acceptance checks use Python Playwright and its Chromium browser (not application dependencies). Start Vite with the test-only public settings documented in `tests/auth_mock.py`, then run `python tests/browser_smoke.py`, `python tests/teams_browser.py`, and `python tests/auth_ui.py`. Backend requests are intercepted in the browser; these fixtures do not bypass production authentication. `npm test` also runs the real SQL migrations and access rules in PGlite PostgreSQL. Set `PITCHWORK_BASE_URL` to test another server, such as the production preview. The script checks scoring, storage recovery, keyboard controls, and layouts at 320, 390, 768, and 1440 pixels. Screenshots go into the ignored `.test-artifacts/` directory.
 
-For actual service-worker and backup acceptance tests, build the app, start `npm run preview -- --port 4174`, and run `python tests/pwa_backup.py`. This checks offline close/reopen, file transfer between browser profiles, and a real waiting service-worker update. It temporarily edits only the ignored `dist/sw.js` build artifact and restores it afterward. The ordinary Vite development server deliberately does not register a service worker.
+For actual service-worker and backup acceptance tests, build with the same test-only settings and run `python tests/pwa_backup.py` against a production preview on port 4174. To isolate test artifacts, pass `--outDir .test-artifacts/pwa-preview` to both Vite build and preview, and set `PITCHWORK_WORKER` to `.test-artifacts/pwa-preview/sw.js`. This checks offline close/reopen, file transfer between browser profiles, and a real waiting service-worker update. It temporarily edits only that ignored worker artifact and restores it afterward. The ordinary Vite development server deliberately does not register a service worker.
 
 App icons can be regenerated from the existing mark with `python scripts/generate_icons.py` (requires Pillow; it is not needed to build or run the app).
 
 ## Practice workflow
 
-1. Add a pitcher, with an optional jersey number and team. Type an existing team name or create one while editing a pitcher.
-2. Start a named or unnamed practice. Only one active or paused practice is allowed at a time.
-3. Tap **BALL**, **STRIKE**, **FOUL**, or **IN PLAY**. Strike records a called strike; use **Record swinging strike** for a swinging strike.
+1. In Roster → Teams, create teams and assign pitchers and coaches. A pitcher or coach can belong to multiple teams. Add pitchers with an optional jersey number and any number of team selections.
+2. Start a named or unnamed practice and choose its team, or Independent for a private practice. Its team stays fixed. Each recording device has one active or paused practice; other coaches’ practices are read-only and do not block yours.
+3. Each **BALL**, **STRIKE**, **FOUL**, and **IN PLAY** tile has four quadrants and a center circle. Tap a region to record both the outcome and pitch location in one action: top left is up/in, top right is up/out, bottom left is down/in, bottom right is down/out, and the circle is down the middle. Strike records a called strike; **Record swinging strike** records a swinging strike without a location. Locations appear in Recent pitches and session history; older pitches show “Not recorded.”
 4. Walks, strikeouts, and balls in play automatically start the next batter. **Next batter** manually ends the current batter. **Reset count** retains the pitches and starts a new batter marked as a manual reset.
 5. Changing pitchers manually ends the current batter and starts a fresh 0–0 count, including when returning to an earlier pitcher.
 6. Undo reverses the latest recorded pitch in the entire session, selecting its pitcher. Automatic completions are reversed. Later manual boundaries are preserved. The undone event remains in the audit history.
 7. Pause/resume as needed. End the session to move it into history. Notes can also be saved on historical sessions. Unsaved note drafts remain available when switching tabs within the app; save them before closing it.
 
-Pitchers can be archived and reactivated without losing their history. Change the selected pitcher or end the ongoing session before archiving that pitcher. There are no application-imposed limits on pitchers, teams, or sessions; available browser storage is the practical limit.
+Remove a pitcher from one team through its roster; their other memberships and historical practice references remain. A pitcher can be archived after all team assignments are removed and reactivated without losing history. Change the selected pitcher or end any ongoing session before archiving that pitcher. There are no application-imposed limits on pitchers, teams, or sessions; available browser storage is the practical limit.
 
 ## Statistics
 
@@ -69,27 +70,23 @@ Pitchers can be archived and reactivated without losing their history. Change th
 ## Storage and architecture
 
 - `src/domain.ts`: pure event replay and metrics, independent of React and IndexedDB.
-- `src/storage.ts`: versioned tables for teams, pitchers, sessions, appearances, and source events. UUIDs, UTC timestamps, and session sequence numbers support future migrations and synchronization.
+- `src/storage.ts`: account-scoped IndexedDB tables, team memberships, source events, and a durable upload queue. Each scoring transaction commits its practice and upload together. Pending snapshots coalesce; in-flight operations keep stable IDs and server revisions for safe retry.
+- `src/cloud.ts` and `supabase/migrations/`: authenticated team management, row-level access rules, and atomic practice uploads. Practice history is scoped to its recorded team, not the pitcher’s current roster.
+- `src/AuthGate.tsx`: Google authentication, admin approval, account isolation, and offline reopening. See [account/backend setup](docs/AUTH.md).
 - `src/App.tsx`: coaching screens and an ordered command queue. Actions become “saved” after the IndexedDB transaction commits. Failed actions stop the queue; Retry preserves their order. Discard unsaved actions cancels only uncommitted queued work.
 - Appearance rows are materialized from source events within the same transaction. Statistics are derived, not stored as authoritative totals.
 
-Data belongs to this browser profile and origin (protocol, hostname, and port). Use the final custom domain consistently. Clearing browser/site data removes both records and offline caches. Settings can request persistent storage where supported, but browser protection does not replace an external backup. The source repository and hosted app are public; individual practice records are never uploaded by the app.
+Locally saved data belongs to this browser profile and origin (protocol, hostname, and port). Synced team data is available to its assigned coaches; independent practices stay private to their recorder. Use the final custom domain consistently. Clearing browser/site data removes both records and offline caches. Settings can request persistent storage where supported, but browser protection does not replace an external backup. The source repository and hosted frontend are public; practice records are stored in the private Supabase database and protected by current account status and team membership. Browser bundles contain only public connection settings.
 
-The connection strip reports network status and offline readiness independently of **Saved on device**. An available update waits for your explicit action. Pause or end practice, save all notes, let pending saves finish, and close forms or restore previews before choosing **Update app**. App updates preserve the IndexedDB database.
+The connection strip reports **Waiting to sync**, **Synced**, or sync errors independently of **Saved on device**, network status, and offline readiness. Reconnect or choose **Refresh & sync** to retry. A rejected upload is preserved for recovery; Settings can export unsynced work before clearing blocked uploads. An available update waits for your explicit action. Pause or end practice, save all notes, let pending saves finish, and close forms or restore previews before choosing **Update app**. App updates preserve the IndexedDB database.
 
 ## Backup, transfer, and recovery
 
-In Settings, choose **Download backup**. The version 1 JSON format includes `format`, `version`, `exportedAt`, `teams`, `pitchers`, `sessions`, and `events`. Materialized plate appearances are rebuilt from source events rather than trusted from a file.
+In Settings, choose **Download backup**. Version 2 includes teams, pitchers, team–pitcher memberships, practice team/recorder attribution, notes, locations, and original source events including undo history. Account credentials, invitations, and coach access grants are excluded. Version 1 files are normalized when read.
 
-To move from localhost to the published address, or from PC to phone:
+Import requires an online approved coach account. Choose **Restore from a JSON backup**, review the preview, confirm that separate copies will be imported, and choose **Import backup copies**. The server creates fresh IDs and new teams assigned only to the importing coach. Existing shared records stay intact, and imported practices are read-only history. Source appearances are rebuilt rather than trusted from the file. Imports are atomic and use a stable request ID for safe retry.
 
-1. Export a backup from the browser that contains your records.
-2. Transfer the JSON file to the destination device using your preferred file-transfer method.
-3. Open the destination app and choose Settings → **Restore from a JSON backup**.
-4. Review the pitcher/session/pitch totals. Export the destination's current records first if you want to keep them.
-5. Confirm **I understand this replaces this device’s records**, then choose **Replace & restore**.
-
-Restore validates the complete file before writing and replaces all records in one transaction. Failure leaves existing records intact. It preserves active/paused sessions, archived pitchers, notes, and undo history. Restore does not merge records or synchronize devices. To recover a previous state, restore the backup saved before replacement.
+Use ordinary synchronization to continue a practice on its original recording device. A backup import does not transfer recording ownership. For uploads rejected after membership changes or a revision conflict, choose **Export unsynced work** before removing recovered blocked uploads. If an account is suspended, the locked sign-in screen still offers export of its isolated pending work.
 
 ## GitHub Pages deployment
 
@@ -98,6 +95,7 @@ Repository: **https://github.com/ejstover/pitchcount**. The blog repository rema
 - Create the repository as **public**, with `main` as its default branch, and push this application's source.
 - In repository Settings → Pages, set the source to **GitHub Actions**.
 - Set the custom domain to **count.twelvefs.com before adding its DNS record**.
+- Configure Supabase, the Google provider, the account creation hook, and the initial admin first using [docs/AUTH.md](docs/AUTH.md). Set repository Actions variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; never put an administrative key into a frontend variable.
 - The deployment workflow checks tests, TypeScript, and the production build before publishing successful `main` builds. Pull requests run checks without deploying.
 - Vite, the manifest, and the service worker use `/` as their base because the app lives at the root of the dedicated subdomain. Do not use the temporary `/pitchcount/` project URL as an installation or data-storage address.
 
@@ -125,4 +123,4 @@ On Windows, check DNS with `Resolve-DnsName count.twelvefs.com -Type CNAME`. Cer
 - **Phase 2:** trends, date filters, comparisons, editable global/per-pitcher coaching goals, and CSV exports. Initial coaching targets: 65% overall strikes, 60% first-pitch strikes, and walks below 10%.
 - Installation, offline reopening, and JSON backup/restore have been brought forward from Phase 3. Further mobile polish remains iterative.
 
-Permanent deletion, cloud sync, and authentication are outside Phase 1.
+Permanent deletion, simultaneous recording into the same practice, and additional sign-in providers are outside this version.

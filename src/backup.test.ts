@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseBackup, validateBackup } from './backup'
-import { metrics } from './domain'
+import { metrics, pitchLocations } from './domain'
 import { PitchDatabase, Repository } from './storage'
 
 let db: PitchDatabase, repo: Repository, sessionId: string, pitcherId: string
 beforeEach(async () => {
   db = new PitchDatabase(`backup-test-${crypto.randomUUID()}`); repo = new Repository(db)
-  await repo.savePitcher({ name: 'Avery', jersey: '12', teamName: 'Falcons' })
+  await repo.savePitcher({ name: 'Avery', jersey: '12', teamIds: [await repo.saveTeam({ name: 'Falcons' })] })
   pitcherId = (await db.pitchers.toArray())[0].id
   sessionId = await repo.startSession(pitcherId, 'Backup practice')
   for (const type of ['called', 'foul', 'swinging']) await repo.act(sessionId, 'pitch', type)
@@ -19,6 +19,30 @@ beforeEach(async () => {
 afterEach(async () => { await db.delete() })
 
 describe('JSON backup and restore', () => {
+  it('preserves all five locations, undo history, and legacy pitches through JSON and restore', async () => {
+    await repo.act(sessionId, 'resume')
+    for (const location of pitchLocations) await repo.act(sessionId, 'pitch', 'ball', location)
+    await repo.act(sessionId, 'undo')
+    const before = await repo.snapshot()
+    const backup = parseBackup(JSON.stringify(await repo.exportBackup()))
+    expect(backup.version).toBe(2)
+    expect(backup.events.filter(e => e.pitchLocation).sort((a, b) => a.sequence - b.sequence).map(e => e.pitchLocation)).toEqual(pitchLocations)
+    expect(backup.events.find(e => e.pitchType === 'swinging')?.pitchLocation).toBeUndefined()
+    await repo.restoreBackup(backup)
+    expect(await repo.snapshot()).toEqual(before)
+  })
+  it.each(['sideways', '', null, 1])('rejects invalid pitch location %j', async location => {
+    const backup = await repo.exportBackup()
+    const malformed = JSON.parse(JSON.stringify(backup))
+    malformed.events.find((event: { kind: string }) => event.kind === 'pitch').pitchLocation = location
+    await expect(repo.restoreBackup(malformed)).rejects.toThrow('pitch location')
+    expect(await repo.exportBackup()).toMatchObject({ events: backup.events })
+  })
+  it('rejects locations attached to non-pitch events', async () => {
+    const backup = JSON.parse(JSON.stringify(await repo.exportBackup()))
+    backup.events.find((event: { kind: string }) => event.kind === 'next').pitchLocation = 'middle'
+    expect(() => validateBackup(backup)).toThrow('only pitch events')
+  })
   it('round-trips all source records, notes, undo history, and a paused session across databases', async () => {
     const backup = parseBackup(JSON.stringify(await repo.exportBackup()))
     const target = new PitchDatabase(`restore-target-${crypto.randomUUID()}`)
@@ -34,7 +58,7 @@ describe('JSON backup and restore', () => {
   })
   it('handles undo followed by boundaries and switches without rejecting valid source references', async () => {
     await repo.act(sessionId, 'resume')
-    await repo.savePitcher({ name: 'Riley', jersey: '', teamName: '' })
+    await repo.savePitcher({ name: 'Riley', jersey: '', teamIds: [] })
     const second = (await db.pitchers.toArray()).find(p => p.id !== pitcherId)!.id
     await repo.act(sessionId, 'pitch', 'inPlay')
     await repo.act(sessionId, 'switch', second)
@@ -49,7 +73,7 @@ describe('JSON backup and restore', () => {
     await repo.act(sessionId, 'end')
     await repo.archivePitcher(pitcherId, true)
     const backup = await repo.exportBackup()
-    await repo.savePitcher({ name: 'Temporary', jersey: '', teamName: 'Extra' })
+    await repo.savePitcher({ name: 'Temporary', jersey: '', teamIds: [await repo.saveTeam({ name: 'Extra' })] })
     await repo.restoreBackup(backup)
     expect(await db.pitchers.count()).toBe(1)
     expect(await db.teams.count()).toBe(1)
@@ -58,7 +82,7 @@ describe('JSON backup and restore', () => {
   })
   it('rolls back all replacement writes if rebuilding fails', async () => {
     const backup = await repo.exportBackup()
-    await repo.savePitcher({ name: 'Keep this player', jersey: '', teamName: '' })
+    await repo.savePitcher({ name: 'Keep this player', jersey: '', teamIds: [] })
     const before = await repo.snapshot()
     const fail = () => { throw new Error('Simulated full disk') }
     db.appearances.hook('creating', fail)

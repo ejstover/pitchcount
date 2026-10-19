@@ -1,0 +1,43 @@
+import { useState } from 'react'
+import { createId } from './id'
+import type { Coach, Team } from './domain'
+import type { Snapshot } from './shared'
+import type { Repository } from './storage'
+
+interface Props { data: Snapshot; repository: Repository; coach: Coach; disabled: boolean; onPractice: (id: string) => void; run: (work: () => Promise<unknown>, done?: () => void) => void }
+export function Teams({ data, repository, coach, disabled, run, onPractice }: Props) {
+  const [selected, setSelected] = useState('')
+  const [editing, setEditing] = useState<Team | 'new' | null>(null)
+  const [email, setEmail] = useState('')
+  const [pitcherId, setPitcherId] = useState('')
+  const [message, setMessage] = useState('')
+  const team = data.teams.find(t => t.id === selected)
+  const locked = disabled || !navigator.onLine || coach.role === 'viewer'
+  const act = (action: string, input: Record<string, unknown>, done?: () => void) => run(() => repository.manage(action, input), done)
+  const invitations = data.invitations.filter(i => i.email.toLowerCase() === coach.email.toLowerCase() && !data.teamCoaches.some(m => m.teamId === i.teamId && m.coachId === coach.id))
+  return <div className="team-workspace">
+    {!navigator.onLine && <p className="settings-notice">Your downloaded teams are available. Reconnect to change teams or assignments.</p>}
+    {message && <p role="status" className="settings-notice">{message}</p>}
+    {!!invitations.length && <section className="card"><span className="eyebrow">YOU’RE INVITED</span>{invitations.map(i => <div className="member-row" key={i.id}><div><strong>{i.teamName}</strong><small>Invited as {i.email}</small></div><button disabled={locked} onClick={() => act('acceptInvitation', { id: i.id, teamId: i.teamId }, () => { setSelected(i.teamId); sessionStorage.removeItem('pitchwork-invitation'); history.replaceState(null, '', location.pathname) })}>Join team</button></div>)}</section>}
+    {editing && <section className="card team-editor"><TeamForm key={editing === 'new' ? 'new' : editing.id} team={editing === 'new' ? undefined : editing} disabled={locked} cancel={() => setEditing(null)} save={input => run(async () => { const id = await repository.saveTeam(input); setSelected(id) }, () => setEditing(null))} /></section>}
+    {team ? <>
+      <button className="text-button" onClick={() => { setSelected(''); setEditing(null) }}>← All teams</button>
+      <section className="card team-title"><div><span className="eyebrow">THE TEAM NOTEBOOK</span><h2>{team.name}</h2><p>One roster. Every coach. A record of the work.</p></div><button disabled={locked} onClick={() => setEditing(team)}>Edit team</button></section>
+      <div className="team-columns"><section className="card"><h2>Pitchers</h2><p className="form-intro">Use an existing pitcher to keep their history together.</p>
+        {data.teamPitchers.filter(m => m.teamId === team.id && m.active).map(m => { const p = data.pitchers.find(p => p.id === m.pitcherId); return <div className="member-row" key={m.pitcherId}><div><strong>{p?.name}</strong><small>{p?.jersey ? `#${p.jersey}` : 'No jersey number'}</small></div><button disabled={locked} onClick={() => act('setPitcher', { teamId: team.id, pitcherId: m.pitcherId, active: false })} aria-label={`Remove ${p?.name} from ${team.name}`}>Remove</button></div> })}
+        {!data.teamPitchers.some(m => m.teamId === team.id && m.active) && <p className="form-intro">No pitchers assigned yet. Add pitchers from the Pitchers tab, then assign them here.</p>}
+        <form onSubmit={e => { e.preventDefault(); act('setPitcher', { teamId: team.id, pitcherId, active: true }, () => setPitcherId('')) }}><label className="field-label">Add an existing pitcher<select aria-label="Add an existing pitcher" value={pitcherId} onChange={e => setPitcherId(e.target.value)} disabled={locked}><option value="">Choose pitcher</option>{data.pitchers.filter(p => !p.archived && !data.teamPitchers.some(m => m.teamId === team.id && m.pitcherId === p.id && m.active)).map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></label><button className="primary" disabled={locked || !pitcherId}>Assign pitcher</button></form>
+      </section><section className="card"><h2>Coaches</h2><p className="form-intro">Assigned coaches can manage this roster and record practices.</p>
+        {data.teamCoaches.filter(m => m.teamId === team.id).map(m => { const c = data.coaches.find(c => c.id === m.coachId); const last = !!c?.active && c.role !== 'viewer' && data.teamCoaches.filter(m => m.teamId === team.id && data.coaches.some(coach => coach.id === m.coachId && coach.active && coach.role !== 'viewer')).length <= 1; return <div className="member-row" key={m.coachId}><div><strong>{c?.name ?? 'Coach'}{m.coachId === coach.id ? ' (you)' : ''}</strong><small>{c?.email}{c && !c.active ? ' · Suspended' : ''}</small></div><button disabled={locked || last} title={last ? 'A team must retain a coach' : undefined} onClick={() => act('removeCoach', { teamId: team.id, coachId: m.coachId })} aria-label={`Remove coach ${c?.name}`}>Remove</button></div> })}
+        <form onSubmit={e => { e.preventDefault(); act('invite', { teamId: team.id, email }, () => { setEmail(''); setMessage('Invitation created. Copy its link and share it with the coach. New accounts need admin approval first.') }) }}><label className="field-label">Coach’s Google email<input required type="email" value={email} onChange={e => setEmail(e.target.value)} disabled={locked} /></label><button className="primary" disabled={locked || !email.trim()}>Invite coach</button></form>
+        {data.invitations.filter(i => i.teamId === team.id).map(i => <div className="invitation-row" key={i.id}><strong>{i.email}</strong><small>Pending invitation</small><input aria-label={`Invitation link for ${i.email}`} readOnly value={`${location.origin}/?invite=${i.id}`} onFocus={e => e.target.select()} /><div className="form-actions"><button onClick={() => { if (!navigator.clipboard) { setMessage('Select and copy the invitation link above.'); return }; void navigator.clipboard.writeText(`${location.origin}/?invite=${i.id}`).then(() => setMessage('Invitation link copied.'), () => setMessage('Select and copy the invitation link above.')) }}>Copy link</button><button disabled={locked} onClick={() => act('cancelInvitation', { teamId: team.id, id: i.id })}>Cancel invitation</button></div></div>)}
+      </section></div>
+      <h2 className="subheading">Team practices</h2><div className="session-list">{data.sessions.filter(s => s.teamId === team.id).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map(s => <button className="session-row" key={s.id} onClick={() => onPractice(s.id)}><span className="session-row-title"><strong>{s.name || 'Bullpen practice'}</strong><small>{new Date(s.startedAt).toLocaleDateString()} · {data.coaches.find(c => c.id === s.recorderId)?.name ?? 'Coach'}</small></span><span className={`status-tag ${s.status}`}>{s.status}</span></button>)}</div>{!data.sessions.some(s => s.teamId === team.id) && <p className="form-intro">Choose this team when starting a practice to build its history.</p>}
+    </> : <><div className="list-heading"><span>{data.teams.length} {data.teams.length === 1 ? 'team' : 'teams'}</span><button className="primary" disabled={locked} onClick={() => setEditing('new')}>Create team</button></div><div className="roster-grid">{data.teams.map(t => <button className="card team-card" key={t.id} onClick={() => { setSelected(t.id); setEditing(null) }}><span className="eyebrow">YOUR DUGOUT</span><h2>{t.name}</h2><p>{data.teamPitchers.filter(m => m.teamId === t.id && m.active).length} pitchers · {data.teamCoaches.filter(m => m.teamId === t.id).length} coaches</p><span className="text-button">Open team →</span></button>)}</div>{!data.teams.length && <div className="empty-card"><h2>Make room for your team.</h2><p>Create a team, assign pitchers, and invite the coaches who put in the work with you.</p></div>}</>}
+  </div>
+}
+function TeamForm({ team, disabled, save, cancel }: { team?: Team; disabled: boolean; save: (input: { id?: string; name: string }) => void; cancel: () => void }) {
+  const [recordId] = useState(() => team?.id ?? createId())
+  const [name, setName] = useState(team?.name ?? '')
+  return <form onSubmit={e => { e.preventDefault(); save({ id: recordId, name }) }}><h2>{team ? 'Edit team' : 'Create a team'}</h2><label className="field-label">Team name<input autoFocus required value={name} onChange={e => setName(e.target.value)} disabled={disabled} /></label><div className="form-actions"><button type="button" onClick={cancel}>Cancel</button><button className="primary" disabled={disabled || !name.trim()}>Save team</button></div></form>
+}
