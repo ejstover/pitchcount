@@ -1,18 +1,20 @@
 """Production-only acceptance tests for offline, backups, and real worker updates.
 
 Start npm run preview -- --port 4174, then run this script.
-Uses a fresh browser profile. Only ignored dist/sw.js is temporarily changed.
+Build with tests/auth_mock.py's mocked Supabase environment and use a fresh profile.
+Only the ignored worker artifact is changed; PITCHWORK_WORKER overrides dist/sw.js.
 """
 import json
 import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
+from auth_mock import install
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / '.test-artifacts'
 ARTIFACTS.mkdir(exist_ok=True)
 BASE_URL = os.environ.get('PITCHWORK_BASE_URL', 'http://127.0.0.1:4174')
-WORKER = ROOT / 'dist' / 'sw.js'
+WORKER = Path(os.environ.get('PITCHWORK_WORKER', str(ROOT / 'dist' / 'sw.js')))
 
 
 def saved(page):
@@ -36,6 +38,7 @@ def count(page, balls, strikes):
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     context = browser.new_context(viewport={'width': 390, 'height': 844}, accept_downloads=True)
+    install(context, role='admin')
     errors = []
     page = context.new_page()
     page.on('pageerror', lambda error: errors.append(str(error)))
@@ -52,7 +55,7 @@ with sync_playwright() as p:
     dialog.get_by_label('Practice name').fill('Airplane mode bullpen')
     dialog.get_by_role('button', name='Let’s practice').click()
     saved(page)
-    page.locator('.pitch-ball').click()
+    page.locator('.pitch-ball .pitch-location-middle').click()
     saved(page)
     count(page, 1, 0)
 
@@ -66,7 +69,7 @@ with sync_playwright() as p:
     wait_offline(page)
     count(page, 1, 0)
     expect(page.get_by_label('Connection and offline availability')).to_contain_text('Offline')
-    page.locator('.pitch-ball').click()
+    page.locator('.pitch-ball .pitch-location-middle').click()
     saved(page)
     page.reload()
     saved(page)
@@ -83,6 +86,7 @@ with sync_playwright() as p:
     saved(page)
     backup = json.loads(backup_file.read_text(encoding='utf-8'))
     assert backup['format'] == 'pitchwork-backup' and len(backup['events']) == 2
+    assert all(event['pitchLocation'] == 'middle' for event in backup['events'])
     for width, height, label in [(320, 740, 'small-phone'), (390, 844, 'iphone'), (768, 1024, 'tablet'), (1440, 1000, 'desktop')]:
         page.set_viewport_size({'width': width, 'height': height})
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'Settings overflow on {label}'
@@ -90,6 +94,7 @@ with sync_playwright() as p:
 
     # Transfer the downloaded file into another browser profile: no shared IndexedDB.
     target_context = browser.new_context(viewport={'width': 390, 'height': 844}, accept_downloads=True)
+    install(target_context, role='admin')
     target = target_context.new_page()
     target.on('pageerror', lambda error: errors.append(str(error)))
     target.goto(BASE_URL)
@@ -100,20 +105,23 @@ with sync_playwright() as p:
     expect(target.get_by_role('alert')).to_contain_text('not valid JSON')
     target.get_by_label('Restore from a JSON backup').set_input_files(backup_file)
     expect(target.get_by_role('heading', name='Ready to restore')).to_be_visible()
-    expect(target.get_by_role('button', name='Replace & restore')).to_be_disabled()
-    target.get_by_label('I understand this replaces this device’s records.').check()
-    target.get_by_role('button', name='Replace & restore').click()
+    expect(target.get_by_role('button', name='Import backup copies')).to_be_disabled()
+    target.get_by_label('I understand this imports separate copies into my account.').check()
+    target.get_by_role('button', name='Import backup copies').click()
     saved(target)
-    expect(target.get_by_text('Backup restored.', exact=False)).to_be_visible()
-    nav(target, 'Practice')
-    count(target, 2, 0)
-    expect(target.locator('.pitcher-heading')).to_contain_text('Casey Offline')
+    expect(target.get_by_text('Backup copies imported.', exact=False)).to_be_visible()
+    nav(target, 'Sessions')
+    target.locator('.session-row').click()
+    expect(target.locator('.history-log tbody tr')).to_have_count(2)
+    expect(target.locator('.history-log')).to_contain_text('Down the middle')
     target_context.set_offline(True)
     target.reload()
     saved(target)
-    count(target, 2, 0)
+    nav(target, 'Sessions')
+    target.locator('.session-row').click()
+    expect(target.locator('.history-log tbody tr')).to_have_count(2)
     target_context.close()
-    print('JSON download, invalid-file rejection, explicit replacement, device transfer, and offline restore recovery passed.')
+    print('JSON download, invalid-file rejection, imported copies, device transfer, and offline restore recovery passed.')
 
     # A changed worker script triggers a genuine waiting update, without changing source.
     nav(page, 'Practice')

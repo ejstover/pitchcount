@@ -1,0 +1,27 @@
+.roster-tabs { display:flex; gap:6px; margin:0 0 24px; border-bottom:1px solid var(--line); padding-bottom:10px; }
+.roster-tabs button { min-width:110px; background:transparent; border-color:transparent; }
+.roster-tabs button[aria-pressed=true] { background:#e6edda; border-color:#bed0a4; color:#173d2e; }
+.team-workspace { display:flex; flex-direction:column; gap:22px; }
+.team-title, .account-card { display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+.team-title p,.team-card p,.account-card p { font-size:12px; color:var(--muted); line-height:1.7; margin-top:9px; overflow-wrap:anywhere; }
+.account-card { margin-bottom:24px; }.account-card .form-intro { flex-basis:100%; margin:0; }
+.team-columns { display:grid; grid-template-columns:1fr 1fr; gap:22px; align-items:start; }
+.team-columns .card { min-width:0; }.team-columns h2 { margin-bottom:14px; }
+.member-row { display:flex; gap:12px; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid var(--line); }
+.member-row div { min-width:0; }.member-row strong,.member-row small { display:block; overflow-wrap:anywhere; }
+.member-row strong { font-size:13px; }.member-row small,.invitation-row small { display:block; color:var(--muted); font-size:11px; margin-top:6px; }
+.member-row button { flex-shrink:0; padding:10px; font-size:11px; }
+.field-label { display:block; font-size:12px; font-weight:700; margin:20px 0 12px; }.field-label input,.field-label select { display:block; margin-top:9px; }
+.team-card { text-align:left; display:block; width:100%; min-height:190px; }.team-card .text-button { display:block; margin-top:22px; }
+.team-editor { max-width:560px; width:100%; }.team-editor input { width:100%; }
+.invitation-row { padding:18px 0 0; margin-top:20px; border-top:1px solid var(--line); font-size:12px; overflow-wrap:anywhere; }
+.invitation-row input { margin-top:12px; font-size:11px; }.invitation-row .form-actions { margin-top:8px; justify-content:start; }
+.team-choices { border:1px solid var(--line); border-radius:8px; padding:12px; margin:20px 0; }
+.team-choices legend { font-size:12px; font-weight:700; padding:0 5px; }.team-choices legend span { font-size:10px; font-weight:400; color:var(--muted); }
+.team-choices label { display:flex; align-items:center; gap:12px; min-height:48px; cursor:pointer; font-size:13px; }
+.team-choices label input { width:24px; height:48px; margin:0; accent-color:#173d2e; flex-shrink:0; }
+.team-choices p { font-size:12px; line-height:1.8; }.connection-strip { flex-wrap:wrap; }.connection-strip button { min-height:48px; }
+@media(max-width:950px) { .team-columns { grid-template-columns:1fr; } }
+@media(max-width:700px) { .team-workspace,.team-columns { gap:16px; }.team-workspace .card { padding:20px; }.connection-strip { justify-content:flex-start; gap:8px; }.connection-strip > span + span::before { margin-right:8px; }.roster-tabs { margin-bottom:18px; }.team-title h2 { font-size:24px; }.team-title button { margin-left:auto; } }
+
+.team-workspace > .settings-notice { padding:14px 18px; border:1px solid #bed49d; border-radius:8px; background:#edf3df; font-size:12px; line-height:1.8; }

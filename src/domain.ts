@@ -1,8 +1,17 @@
 export type PitchType = 'ball' | 'called' | 'swinging' | 'foul' | 'inPlay'
+export const pitchLocations = ['upIn', 'upOut', 'downIn', 'downOut', 'middle'] as const
+export type PitchLocation = typeof pitchLocations[number]
+export const pitchLocationLabels: Record<PitchLocation, string> = {
+  upIn: 'Up and in', upOut: 'Up and out', downIn: 'Down and in', downOut: 'Down and out', middle: 'Down the middle',
+}
 export type Outcome = 'walk' | 'strikeout' | 'inPlay' | 'manual' | 'reset' | 'switch' | 'end'
 export interface Team { id: string; name: string; createdAt: string; updatedAt: string }
+export interface Coach { id: string; name: string; email: string; role: 'admin' | 'coach' | 'viewer'; active: boolean }
+export interface TeamPitcher { teamId: string; pitcherId: string; active: boolean }
+export interface TeamCoach { teamId: string; coachId: string }
+export interface Invitation { id: string; teamId: string; email: string; teamName: string; createdAt: string }
 export interface Pitcher {
-  id: string; name: string; jersey: string; teamId: string | null
+  id: string; name: string; jersey: string; ownerId: string
   archived: boolean; createdAt: string; updatedAt: string
 }
 export interface Session {
@@ -10,12 +19,14 @@ export interface Session {
   endedAt: string | null; status: 'active' | 'paused' | 'ended'
   initialPitcherId: string; initialAppearanceId: string; selectedPitcherId: string
   pitcherIds: string[]; nextSequence: number
+  teamId: string | null; recorderId: string; deviceId: string; revision: number
+  recovered?: boolean
 }
 export interface SessionEvent {
   id: string; sessionId: string; pitcherId: string; appearanceId: string
   sequence: number; timestamp: string; nextAppearanceId: string
   kind: 'pitch' | 'next' | 'reset' | 'switch' | 'end'
-  pitchType?: PitchType; voidedAt: string | null
+  pitchType?: PitchType; pitchLocation?: PitchLocation; voidedAt: string | null
 }
 export interface Appearance {
   id: string; sessionId: string; pitcherId: string; order: number
