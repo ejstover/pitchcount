@@ -84,7 +84,7 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Assign pitcher', exact=True).click()
     saved()
     expect(page.get_by_role('button', name='Remove Casey Smith from Falcons')).to_be_visible()
-    page.get_by_label('Coach’s Google email').fill('assistant@example.com')
+    page.get_by_label('Coach’s email').fill('assistant@example.com')
     page.get_by_role('button', name='Invite coach', exact=True).click()
     saved()
     expect(page.get_by_label('Invitation link for assistant@example.com')).to_have_value(URL.replace('https://pitchwork-test.supabase.co', BASE) + '/?invite=' + backend.data['invitations'][0]['id'])

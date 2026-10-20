@@ -13,19 +13,22 @@ import uuid
 URL = 'https://pitchwork-test.supabase.co'
 COACH_ID = '10000000-0000-4000-8000-000000000001'
 TEAM_ID = '20000000-0000-4000-8000-000000000001'
+PASSWORD = 'a secure practice passphrase'
+
+def make_session(profile):
+    now = int(time.time())
+    token = '.'.join(base64.urlsafe_b64encode(json.dumps(p).encode()).decode().rstrip('=') for p in [
+        {'alg': 'HS256', 'typ': 'JWT'}, {'sub': profile['id'], 'aud': 'authenticated', 'role': 'authenticated', 'iat': now, 'exp': now + 86400},
+    ]) + '.browser-test-signature'
+    user = {**profile, 'aud': 'authenticated', 'email_confirmed_at': '2026-01-01T00:00:00Z', 'app_metadata': {'provider': 'email', 'providers': ['email']}, 'user_metadata': {'name': profile['name']}, 'identities': [{'provider': 'email', 'id': profile['id']}], 'created_at': '2026-01-01T00:00:00Z'}
+    return {'access_token': token, 'refresh_token': 'browser-test-refresh', 'expires_at': now + 86400, 'expires_in': 86400, 'token_type': 'bearer', 'user': user}
 
 
 def install(context, role='coach', signed_in=True):
     backend = Backend(role)
     context.route(URL + '/**', backend.handle)
     if signed_in:
-        profile = backend.profile
-        now = int(time.time())
-        token = '.'.join(base64.urlsafe_b64encode(json.dumps(p).encode()).decode().rstrip('=') for p in [
-            {'alg': 'HS256', 'typ': 'JWT'}, {'sub': COACH_ID, 'aud': 'authenticated', 'role': 'authenticated', 'iat': now, 'exp': now + 86400},
-        ]) + '.browser-test-signature'
-        user = {**profile, 'aud': 'authenticated', 'email_confirmed_at': '2026-01-01T00:00:00Z', 'app_metadata': {'provider': 'google', 'providers': ['google']}, 'user_metadata': {'name': profile['name']}, 'identities': [{'provider': 'google', 'id': COACH_ID}], 'created_at': '2026-01-01T00:00:00Z'}
-        session = {'access_token': token, 'refresh_token': 'browser-test-refresh', 'expires_at': now + 86400, 'expires_in': 86400, 'token_type': 'bearer', 'user': user}
+        session = make_session(backend.profile)
         context.add_init_script("""(() => {
           if (!localStorage.getItem('pitchwork-browser-initialized')) {
             localStorage.setItem('pitchwork-auth:' + %s, %s);
@@ -42,10 +45,12 @@ class Backend:
         self.operations = {}
         self.requests = []
         self.fail_upload = False
+        self.setup_used = False
+        self.password_updates = 0
 
     def handle(self, route):
         req = route.request
-        if '/auth/v1/token' in req.url:
+        if '/auth/v1/token' in req.url and 'grant_type=password' not in req.url:
             # An expired-token offline test must produce a retryable network
             # failure, rather than a fake404 that revokes the SDK session.
             route.abort('internetdisconnected')
@@ -56,7 +61,18 @@ class Backend:
             return
         payload = json.loads(req.post_data or '{}')
         result, status = {}, 200
-        if '/functions/v1/accounts' in req.url:
+        if '/auth/v1/token' in req.url:
+            if payload.get('email') == self.profile['email'] and payload.get('password') == PASSWORD:
+                result = make_session(self.profile)
+            else:
+                result, status = {'error_code': 'invalid_credentials', 'msg': 'Invalid login credentials'}, 400
+        elif '/auth/v1/verify' in req.url:
+            if payload.get('token_hash') == 'valid-setup-token' and not self.setup_used:
+                self.setup_used = True
+                result = make_session(self.profile)
+            else:
+                result, status = {'error_code': 'otp_expired', 'msg': 'Token has expired or is invalid'}, 403
+        elif '/functions/v1/accounts' in req.url:
             action = payload['action']
             if action == 'request':
                 self.requests.append({'id': str(uuid.uuid4()), 'name': payload['name'], 'email': payload['email'], 'requested_team': payload['requestedTeam'], 'status': 'pending'})
@@ -78,12 +94,18 @@ class Backend:
                 for request in self.requests:
                     if request['email'] == payload.get('email'):
                         request['status'] = 'approved'
+                if action == 'create':
+                    result = {'setupLink': 'http://localhost:5187/#password-setup=valid-setup-token'}
+            elif action == 'reset_password':
+                result = {'setupLink': 'http://localhost:5187/#password-setup=valid-setup-token'}
             elif action == 'reject':
                 for request in self.requests:
                     if request['id'] == payload['id']:
                         request['status'] = 'rejected'
         elif '/auth/v1/user' in req.url:
-            result = self.profile
+            if req.method == 'PUT':
+                self.password_updates += 1
+            result = make_session(self.profile)['user']
         elif '/auth/v1/logout' in req.url:
             result = {}
         elif '/rest/v1/rpc/get_workspace' in req.url:

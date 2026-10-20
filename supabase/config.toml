@@ -1,16 +1,18 @@
 project_id = "pitchwork"
 
 [auth]
+minimum_password_length = 15
 site_url = "http://localhost:5173"
 additional_redirect_urls = ["http://localhost:5173/", "http://127.0.0.1:5173/", "https://count.twelvefs.com/"]
 
 [auth.email]
-enabled = false
+enabled = true
+otp_expiry = 3600
 
 [auth.external.google]
 # For a local Supabase stack, set these in an ignored root .env file before
 # `supabase start`. Hosted projects configure their provider in the dashboard.
-enabled = true
+enabled = false
 client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
 redirect_uri = "http://127.0.0.1:54321/auth/v1/callback"

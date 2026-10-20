@@ -15,7 +15,7 @@ type Page = 'Practice' | 'Teams' | 'Pitchers' | 'Statistics' | 'Sessions' | 'Set
 type Job = { work: () => Promise<unknown>; done?: () => void; committed?: boolean }
 type SaveFailure = { message: string; retry: () => void; discard: () => void }
 const empty: Snapshot = emptySnapshot()
-// Keep invitation navigation across the Google round trip to the root page.
+// Keep invitation navigation across sign-in and password setup.
 const invitationRequest = new URLSearchParams(window.location.search).get('invite')
 if (invitationRequest) sessionStorage.setItem('pitchwork-invitation', invitationRequest)
 const date = (value: string) => new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })

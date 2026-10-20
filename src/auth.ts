@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Coach } from './domain'
+import { accountEmail,validatePassword } from './account-validation'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined
@@ -12,8 +13,9 @@ function validConfiguration() {
     return true
   } catch { return false }
 }
-export const configurationError = !validConfiguration()
-  ? 'Google login needs configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to public project credentials, then rebuild Pitchwork. See docs/AUTH.md.' : ''
+export const transportError = typeof window !== 'undefined' && !window.isSecureContext ? 'Open Pitchwork using HTTPS before entering a password. The local development server on localhost is also supported.' : ''
+export const configurationError = transportError || (!validConfiguration()
+  ? 'Login needs configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to public project credentials, then rebuild Pitchwork. See docs/AUTH.md.' : '')
 export const authStorageKey = `pitchwork-auth:${url ?? 'unconfigured'}`
 export const supabase = configurationError ? null : createClient(url!,key!,{ auth:{ storageKey:authStorageKey,flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true } })
 export type AccountProfile = Coach
@@ -40,7 +42,7 @@ export async function accountApi<T = unknown>(action: string,payload: Record<str
   if (action !== 'request') {
     let timer: ReturnType<typeof setTimeout> | undefined
     const session = await Promise.race([supabase.auth.getSession(),new Promise<never>((_,reject) => {
-      timer = setTimeout(() => reject(new AccountError('Could not renew your session. Reconnect with Google when online.')),15000)
+      timer = setTimeout(() => reject(new AccountError('Could not renew your session. Sign in again when online.')),15000)
     })]).finally(() => clearTimeout(timer))
     if (!session.data.session) throw new AccountError('Sign in again to reconnect.',401,'reauth')
     headers.Authorization = `Bearer ${session.data.session.access_token}`
@@ -54,17 +56,35 @@ export async function accountApi<T = unknown>(action: string,payload: Record<str
   return body as T
 }
 export const loadProfile = () => accountApi<AccountProfile>('profile')
-export async function signInWithGoogle() {
+export async function signInWithPassword(email:string,password:string) {
   if (!supabase) throw new AccountError(configurationError)
-  if (!navigator.onLine) throw new AccountError('Connect to the internet to sign in with Google.')
-  const {error} = await supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo:`${window.location.origin}/`,queryParams:{prompt:'select_account'}}})
-  if (error) throw new AccountError('Could not start Google sign-in. Please retry.')
+  if (!navigator.onLine) throw new AccountError('Connect to the internet to sign in.')
+  const {error} = await supabase.auth.signInWithPassword({email:accountEmail(email),password})
+  if (error) throw new AccountError(error.status === 429 ? 'Too many sign-in attempts. Wait a little before retrying.' : 'Could not sign in. Check your email and password, or ask the admin to approve your account.')
 }
-export function oauthError(): string {
+export function authRedirectError(): string {
   const query = new URLSearchParams(window.location.search)
   const hash = new URLSearchParams(window.location.hash.slice(1))
   const code = query.get('error') ?? hash.get('error')
   if (!code) return ''
   history.replaceState(null,'',window.location.pathname)
-  return code === 'access_denied' ? 'Google sign-in was canceled or your account has not been approved. Retry or request an account.' : 'Google sign-in could not finish. Retry, or request an account if an admin has not created yours.'
+  return 'This sign-in link could not be used. Ask the admin for a new password setup link.'
+}
+export function readSetupToken():string|null {
+  const fragment = new URLSearchParams(window.location.hash.slice(1))
+  return fragment.get('password-setup')
+}
+export async function setAccountPassword(password:string,token:string|null) {
+  if (!supabase) throw new AccountError(configurationError)
+  validatePassword(password)
+  if (token) {
+    const {data,error} = await supabase.auth.verifyOtp({token_hash:token,type:'recovery'})
+    if (error || !data.user) throw new AccountError('This setup link has expired or has already been used. Ask the admin for a new one.')
+    sessionStorage.setItem('pitchwork-password-setup',data.user.id)
+  }
+  const profile = await loadProfile()
+  if (sessionStorage.getItem('pitchwork-password-setup') !== profile.id) throw new AccountError('Ask the admin for a new password setup link.')
+  const {error} = await supabase.auth.updateUser({password})
+  if (error) throw new AccountError('Could not save your password. Check the connection and password requirements, then retry.')
+  sessionStorage.removeItem('pitchwork-password-setup')
 }
