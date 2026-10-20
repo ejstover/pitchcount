@@ -1,7 +1,8 @@
 import { useEffect,useRef,useState } from 'react'
 import { App } from './App'
 import { Login } from './Login'
-import { AccountError,cacheProfile,cachedSessionUserId,configurationError,loadProfile,oauthError,readCachedProfile,signInWithGoogle,supabase,type AccountProfile } from './auth'
+import { AccountError,cacheProfile,cachedSessionUserId,configurationError,transportError,loadProfile,authRedirectError,readCachedProfile,readSetupToken,supabase,type AccountProfile } from './auth'
+import { PasswordSetup } from './PasswordSetup'
 import { SupabaseGateway,getDeviceId } from './cloud'
 import { PitchDatabase,Repository } from './storage'
 import { usePwa } from './pwa'
@@ -10,7 +11,9 @@ type Access = {profile:AccountProfile;repository:Repository}
 export function AuthGate() {
   const [access,setAccess] = useState<Access|null>(null)
   const [loading,setLoading] = useState(!configurationError)
-  const [message,setMessage] = useState(oauthError)
+  const [message,setMessage] = useState(authRedirectError)
+  const [setup,setSetup] = useState<string|null>(() => readSetupToken() ?? (sessionStorage.getItem('pitchwork-password-setup') ? '' : null))
+  const setupMode = useRef(setup !== null)
   const [lockedRecovery,setLockedRecovery] = useState<Repository|null>(null)
   const recovery = useRef<Repository|null>(null)
   const setRecovery = (repository:Repository|null) => {recovery.current = repository;setLockedRecovery(repository)}
@@ -20,7 +23,7 @@ export function AuthGate() {
   usePwa()
   async function open(profile:AccountProfile,offline:boolean) {
     if (!mounted.current || !supabase) return
-    if (profile.id !== cachedSessionUserId()) throw new AccountError('Account changed. Checking the new Google session.',401)
+    if (profile.id !== cachedSessionUserId()) throw new AccountError('Account changed. Checking the new session.',401)
     recovery.current?.db.close();setRecovery(null)
     if (current.current?.profile.id === profile.id) {
       if (!offline) await current.current.repository.sync()
@@ -40,13 +43,13 @@ export function AuthGate() {
   }
   async function verify() {
     if (checking.current) return checking.current
-    checking.current = (async () => {
+    checking.current = Promise.resolve().then(async () => {
       try {
-        if (configurationError) return
+        if (configurationError || setupMode.current) return
         const cached = readCachedProfile()
         if (!navigator.onLine) {
           if (cached) {await open(cached,true);setMessage('Offline access · showing records previously downloaded to this device.')}
-          else setMessage('Connect to the internet for your first Google sign-in.')
+          else setMessage('Connect to the internet for your first sign-in.')
           return
         }
         const profile = await loadProfile()
@@ -73,17 +76,20 @@ export function AuthGate() {
         }
         if (mounted.current && !(error.status === 401 && !cachedSessionUserId())) setMessage(error.message || 'Could not check account access. Retry when connected.')
       } finally {if (mounted.current) setLoading(false);checking.current = null}
-    })()
+    })
     return checking.current
   }
   useEffect(() => {
     mounted.current = true;void verify()
     const refresh = () => {if (!document.hidden) void verify()}
+    const setupLink = () => {const token = readSetupToken();if (token) {setupMode.current = true;setSetup(token);setLoading(false)}}
+    window.addEventListener('hashchange',setupLink)
     window.addEventListener('online',refresh);window.addEventListener('offline',refresh);window.addEventListener('focus',refresh)
     document.addEventListener('visibilitychange',refresh)
     const timer = window.setInterval(refresh,30000)
     // Do not await Supabase calls inside its auth event callback (SDK lock).
     const subscription = supabase?.auth.onAuthStateChange((event,session) => {
+      if (event === 'PASSWORD_RECOVERY') {setupMode.current = true;setSetup(previous => previous ?? '');setLoading(false)}
       if (event === 'SIGNED_IN' && recovery.current && recovery.current.identity.coachId !== session?.user.id) {recovery.current.db.close();setRecovery(null)}
       if (event === 'SIGNED_IN' && current.current && session?.user.id !== current.current.profile.id) {
         current.current.repository.db.close();current.current = null;setAccess(null);setLoading(true)
@@ -96,10 +102,12 @@ export function AuthGate() {
     })
     return () => {
       mounted.current = false;clearInterval(timer)
+      window.removeEventListener('hashchange',setupLink)
       window.removeEventListener('online',refresh);window.removeEventListener('offline',refresh);window.removeEventListener('focus',refresh)
       document.removeEventListener('visibilitychange',refresh);subscription?.data.subscription.unsubscribe()
     }
   },[])
+  if (transportError) return <main className="account-gate card"><h1>Secure connection required.</h1><p role="alert">{transportError}</p></main>
   async function signOut() {
     const previous = current.current
     if (!previous || !supabase) return
@@ -115,6 +123,7 @@ export function AuthGate() {
     await supabase.auth.signOut({scope:'local'})
     setMessage('You’re signed out. This account’s downloaded records have been cleared.')
   }
+  if (setup !== null) return <PasswordSetup initialToken={setup || null} onComplete={() => {setupMode.current = false;setSetup(null);setLoading(true);void verify()}} onCancel={() => {sessionStorage.removeItem('pitchwork-password-setup');setupMode.current = false;setSetup(null);setLoading(false);setMessage('Sign in with your email and password.')}}/>
   if (loading) return <main className="account-gate"><span className="eyebrow">PITCHWORK</span><h1>Opening your dugout…</h1><p>Checking your account and downloading your teams.</p></main>
   async function exportLockedRecovery() {
     if (!lockedRecovery) return
@@ -124,5 +133,5 @@ export function AuthGate() {
     document.body.append(anchor);anchor.click();anchor.remove();setTimeout(() => URL.revokeObjectURL(url),60000)
   }
   if (!access) return <Login message={message} onRetry={() => {setLoading(true);void verify()}} onExportRecovery={lockedRecovery ? exportLockedRecovery : undefined}/>
-  return <>{message && <div className="account-status" role="alert"><span>{message}</span>{navigator.onLine && <><button onClick={() => void verify()}>Retry access</button><button onClick={() => void signInWithGoogle().catch(cause => setMessage(cause.message))}>Reconnect with Google</button></>}</div>}<App key={`${access.profile.id}:${access.profile.role}`} repository={access.repository} coach={access.profile} onSignOut={signOut}/></>
+  return <>{message && <div className="account-status" role="alert"><span>{message}</span>{navigator.onLine && <><button onClick={() => void verify()}>Retry access</button><button onClick={() => {current.current = null;setAccess(null)}}>Sign in again</button></>}</div>}<App key={`${access.profile.id}:${access.profile.role}`} repository={access.repository} coach={access.profile} onSignOut={signOut}/></>
 }

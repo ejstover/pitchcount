@@ -7,7 +7,7 @@ import json
 import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
-from auth_mock import install, URL, COACH_ID, TEAM_ID
+from auth_mock import install, URL, COACH_ID, TEAM_ID, PASSWORD
 
 BASE = os.environ.get('PITCHWORK_BASE_URL', 'http://127.0.0.1:5187')
 OUT = Path(__file__).resolve().parents[1] / '.test-artifacts'
@@ -16,6 +16,13 @@ OUT.mkdir(exist_ok=True)
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     errors = []
+    insecure = browser.new_context()
+    insecure.add_init_script("Object.defineProperty(window, 'isSecureContext', {value: false})")
+    insecure_page = insecure.new_page()
+    insecure_page.goto(BASE)
+    expect(insecure_page.get_by_role('heading', name='Secure connection required.')).to_be_visible()
+    assert insecure_page.locator('input[type=password]').count() == 0
+    insecure.close()
     public = browser.new_context(viewport={'width': 390, 'height': 844})
     backend = install(public, signed_in=False)
     page = public.new_page()
@@ -25,7 +32,7 @@ with sync_playwright() as p:
     expect(page.get_by_role('heading', name='Welcome to Pitchwork.')).to_be_visible()
     page.get_by_role('button', name='Request an account').click()
     page.get_by_label('Your name').fill('New Coach')
-    page.get_by_label('Google account email').fill('new@example.com')
+    page.get_by_label('Email address').fill('new@example.com')
     page.get_by_label('Requested team').fill('Falcons')
     page.get_by_role('button', name='Send account request').click()
     expect(page.get_by_role('status')).to_contain_text('Request received.')
@@ -34,13 +41,15 @@ with sync_playwright() as p:
     page.screenshot(path=str(OUT / 'account-request-mobile.png'), full_page=True)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     page.get_by_role('button', name='Back to sign in').click()
-    page.route(URL + '/auth/v1/authorize**', lambda route: route.fulfill(body='Google OAuth redirect verified.'))
-    with page.expect_request(URL + '/auth/v1/authorize**') as redirected:
-        page.get_by_role('button', name='Continue with Google').click()
-    assert 'provider=google' in redirected.value.url
-    assert 'code_challenge=' in redirected.value.url
+    page.get_by_label('Email address').fill('coach@example.com')
+    page.get_by_label('Password', exact=True).fill('wrong password')
+    page.get_by_role('button', name='Sign in', exact=True).click()
+    expect(page.get_by_role('alert')).to_contain_text('Could not sign in')
+    page.get_by_label('Password', exact=True).fill(PASSWORD)
+    page.get_by_role('button', name='Sign in', exact=True).click()
+    expect(page.get_by_role('navigation')).to_be_visible()
     public.close()
-    print('Public account requests and Google PKCE redirect passed.')
+    print('Public requests, incorrect-password handling, and email/password login passed.')
 
     admin_context = browser.new_context(viewport={'width': 1440, 'height': 1000})
     admin = install(admin_context, role='admin')
@@ -57,7 +66,7 @@ with sync_playwright() as p:
     editor = page.locator('.account-editor')
     editor.get_by_role('checkbox', name='Falcons').check()
     editor.get_by_role('button', name='Create account', exact=True).click()
-    expect(page.get_by_text('Account access saved.')).to_be_visible()
+    expect(page.get_by_label('Private password setup link')).to_be_visible()
     account = page.locator('.account-row').filter(has_text='new@example.com')
     expect(account).to_contain_text('Active')
     expect(account).to_contain_text('Falcons')
@@ -102,6 +111,31 @@ with sync_playwright() as p:
     expect(page.get_by_role('heading', name='Welcome to Pitchwork.')).to_be_visible()
     assert page.evaluate("localStorage.getItem('pitchwork-approved:' + %s)" % __import__('json').dumps(URL)) is None
     coach_context.close()
+    setup_context = browser.new_context()
+    setup_backend = install(setup_context, signed_in=False)
+    page = setup_context.new_page()
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.goto(BASE + '/#password-setup=valid-setup-token')
+    expect(page.get_by_role('heading', name='Choose your password.')).to_be_visible()
+    assert 'password-setup' not in page.url, 'Setup credential must be removed from browser history'
+    assert not setup_backend.setup_used, 'Opening the page must not consume a setup link'
+    page.get_by_label('New password', exact=True).fill(PASSWORD)
+    page.get_by_label('Confirm password', exact=True).fill('a different long password')
+    page.get_by_role('button', name='Save password', exact=True).click()
+    expect(page.get_by_role('alert')).to_contain_text('do not match')
+    assert not setup_backend.setup_used
+    page.get_by_label('Confirm password', exact=True).fill(PASSWORD)
+    page.get_by_role('button', name='Save password', exact=True).click()
+    expect(page.get_by_role('navigation')).to_be_visible()
+    assert setup_backend.password_updates == 1
+    page.goto(BASE + '/#password-setup=valid-setup-token')
+    page.get_by_label('New password', exact=True).fill(PASSWORD)
+    page.get_by_label('Confirm password', exact=True).fill(PASSWORD)
+    page.get_by_role('button', name='Save password', exact=True).click()
+    expect(page.get_by_role('alert')).to_contain_text('expired or has already been used')
+    assert setup_backend.password_updates == 1
+    setup_context.close()
+    print('Private password setup, mismatch, fragment removal, and single-use recovery passed.')
     recovery_context = browser.new_context(accept_downloads=True)
     recovery_backend = install(recovery_context, role='coach')
     recovery_backend.fail_upload = True

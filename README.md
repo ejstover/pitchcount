@@ -1,15 +1,15 @@
 # Pitchwork
 
-A mobile-first baseball and softball practice pitch tracker. Pitchwork uses React, TypeScript, Vite, Tailwind CSS, Dexie/IndexedDB, and Supabase. Admin-approved coaches sign in with Google, manage their assigned teams, and share team practice history. After signing in and downloading the roster online, coaches can reopen and record practices offline; saved pitches sync when connectivity returns.
+A mobile-first baseball and softball practice pitch tracker. Pitchwork uses React, TypeScript, Vite, Tailwind CSS, Dexie/IndexedDB, and Supabase. Admin-approved coaches sign in with email and password, manage their assigned teams, and share team practice history. After signing in and downloading the roster online, coaches can reopen and record practices offline; saved pitches sync when connectivity returns.
 
 Production address: **https://count.twelvefs.com** (requires the GitHub Pages and DNS setup below).
 
 ## Use it on an iPhone
 
-1. Configure Supabase and Google sign-in using [the account setup guide](docs/AUTH.md), then open **https://count.twelvefs.com** in Safari while online.
+1. Configure Supabase and email/password login using [the account setup guide](docs/AUTH.md), then open **https://count.twelvefs.com** in Safari while online.
 2. Use **Share → Add to Home Screen**. Choose **Open as Web App** if Safari offers that option.
 3. Launch Pitchwork from its home-screen icon while still online. Wait for **Ready offline** in the connection strip.
-4. Sign in with your approved Google account, create or join a team, assign pitchers, and start practice. Your PC does not need to be running.
+4. Sign in with your approved account, create or join a team, assign pitchers, and start practice. Your PC does not need to be running.
 5. In Settings, periodically **Download backup** and save the JSON file in Files or another location you can recover.
 
 The ordinary browser and installed web app may have separate storage. Install first, then create your roster inside the installed app. Sign in with the same approved account to download shared records. Unsynced practices remain on their original recording device; reconnect that device to upload them.
@@ -72,7 +72,7 @@ Remove a pitcher from one team through its roster; their other memberships and h
 - `src/domain.ts`: pure event replay and metrics, independent of React and IndexedDB.
 - `src/storage.ts`: account-scoped IndexedDB tables, team memberships, source events, and a durable upload queue. Each scoring transaction commits its practice and upload together. Pending snapshots coalesce; in-flight operations keep stable IDs and server revisions for safe retry.
 - `src/cloud.ts` and `supabase/migrations/`: authenticated team management, row-level access rules, and atomic practice uploads. Practice history is scoped to its recorded team, not the pitcher’s current roster.
-- `src/AuthGate.tsx`: Google authentication, admin approval, account isolation, and offline reopening. See [account/backend setup](docs/AUTH.md).
+- `src/AuthGate.tsx`: Email/password authentication, admin approval, account isolation, and offline reopening. See [account/backend setup](docs/AUTH.md).
 - `src/App.tsx`: coaching screens and an ordered command queue. Actions become “saved” after the IndexedDB transaction commits. Failed actions stop the queue; Retry preserves their order. Discard unsaved actions cancels only uncommitted queued work.
 - Appearance rows are materialized from source events within the same transaction. Statistics are derived, not stored as authoritative totals.
 
@@ -95,7 +95,7 @@ Repository: **https://github.com/ejstover/pitchcount**. The blog repository rema
 - Create the repository as **public**, with `main` as its default branch, and push this application's source.
 - In repository Settings → Pages, set the source to **GitHub Actions**.
 - Set the custom domain to **count.twelvefs.com before adding its DNS record**.
-- Configure Supabase, the Google provider, the account creation hook, and the initial admin first using [docs/AUTH.md](docs/AUTH.md). Set repository Actions variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; never put an administrative key into a frontend variable.
+- Configure Supabase, the Email provider, the account creation hook, and the initial admin first using [docs/AUTH.md](docs/AUTH.md). Set repository Actions variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; never put an administrative key into a frontend variable.
 - The deployment workflow checks tests, TypeScript, and the production build before publishing successful `main` builds. Pull requests run checks without deploying.
 - Vite, the manifest, and the service worker use `/` as their base because the app lives at the root of the dedicated subdomain. Do not use the temporary `/pitchcount/` project URL as an installation or data-storage address.
 

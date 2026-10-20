@@ -1,7 +1,7 @@
 import { afterAll,beforeAll,describe,expect,it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
-import { accountRequest } from './account-validation'
+import { accountRequest,validatePassword } from './account-validation'
 let db:PGlite
 const admin = '10000000-0000-4000-8000-000000000001'
 const coach = '10000000-0000-4000-8000-000000000002'
@@ -79,6 +79,13 @@ describe('account approval and administration',() => {
   })
 })
 describe('request input validation',() => {
+  it('requires a long password and rejects bcrypt byte truncation',() => {
+    expect(() => validatePassword('short')).toThrow('15 characters')
+    expect(() => validatePassword('unrelated words for practice')).not.toThrow()
+    expect(() => validatePassword('a'.repeat(72))).not.toThrow()
+    expect(() => validatePassword('a'.repeat(73))).toThrow('72 UTF-8 bytes')
+    expect(() => validatePassword('😀'.repeat(20))).toThrow('72 UTF-8 bytes')
+  })
   it('normalizes a complete request',() => {expect(accountRequest({name:' Coach ',email:'COACH@Example.com ',requestedTeam:' Falcons '})).toEqual({name:'Coach',email:'coach@example.com',requestedTeam:'Falcons'})})
   it.each([{name:'',email:'a@example.com',requestedTeam:'A'},{name:'A',email:'invalid',requestedTeam:'A'},{name:'A',email:'a@example.com',requestedTeam:' '},{name:'x'.repeat(101),email:'a@example.com',requestedTeam:'A'}])('rejects incomplete or excessive input',value => {expect(() => accountRequest(value)).toThrow()})
 })
