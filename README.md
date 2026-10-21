@@ -8,7 +8,7 @@ Production address: **https://count.twelvefs.com** (requires the GitHub Pages an
 
 1. Configure Supabase and email/password login using [the account setup guide](docs/AUTH.md), then open **https://count.twelvefs.com** in Safari while online.
 2. Use **Share → Add to Home Screen**. Choose **Open as Web App** if Safari offers that option.
-3. Launch Pitchwork from its home-screen icon while still online. Wait for **Ready offline** in the connection strip.
+3. Launch Pitchwork from its home-screen icon while still online. Open the save and sync status beside the page title and check for **Ready offline**.
 4. Sign in with your approved account, create or join a team, assign pitchers, and start practice. Your PC does not need to be running.
 5. In Settings, periodically **Download backup** and save the JSON file in Files or another location you can recover.
 
@@ -78,7 +78,7 @@ Remove a pitcher from one team through its roster; their other memberships and h
 
 Locally saved data belongs to this browser profile and origin (protocol, hostname, and port). Synced team data is available to its assigned coaches; independent practices stay private to their recorder. Use the final custom domain consistently. Clearing browser/site data removes both records and offline caches. Settings can request persistent storage where supported, but browser protection does not replace an external backup. The source repository and hosted frontend are public; practice records are stored in the private Supabase database and protected by current account status and team membership. Browser bundles contain only public connection settings.
 
-The connection strip reports **Waiting to sync**, **Synced**, or sync errors independently of **Saved on device**, network status, and offline readiness. Reconnect or choose **Refresh & sync** to retry. A rejected upload is preserved for recovery; Settings can export unsynced work before clearing blocked uploads. An available update waits for your explicit action. Pause or end practice, save all notes, let pending saves finish, and close forms or restore previews before choosing **Update app**. App updates preserve the IndexedDB database.
+The single save and sync indicator beside the page title reports **All changes synced**, pending uploads, offline status, unsaved notes, or errors. Expand it to see local saves, team sync, connection, and offline readiness separately, or choose **Refresh & sync** to retry. A rejected upload is preserved for recovery; Settings can export unsynced work before clearing blocked uploads. An available update waits for your explicit action. Pause or end practice, save all notes, let pending saves finish, and close forms or restore previews before choosing **Update app**. App updates preserve the IndexedDB database.
 
 ## Backup, transfer, and recovery
 

@@ -18,7 +18,7 @@ WORKER = Path(os.environ.get('PITCHWORK_WORKER', str(ROOT / 'dist' / 'sw.js')))
 
 
 def saved(page):
-    expect(page.locator('.save-status')).to_have_text('Saved on device')
+    expect(page.locator('[data-save-state]')).to_have_attribute('data-save-state', 'saved')
 
 
 def nav(page, name):
@@ -51,9 +51,9 @@ with sync_playwright() as p:
     dialog.get_by_label('Pitcher name').fill('Casey Offline')
     dialog.get_by_role('button', name='Add pitcher', exact=True).click()
     saved(page)
+    page.locator('.practice-options summary').click()
+    page.get_by_label('Practice name').fill('Airplane mode bullpen')
     page.get_by_role('button', name='Start practice', exact=True).click()
-    dialog.get_by_label('Practice name').fill('Airplane mode bullpen')
-    dialog.get_by_role('button', name='Let’s practice').click()
     saved(page)
     page.locator('.pitch-ball .pitch-location-middle').click()
     saved(page)

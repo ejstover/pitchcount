@@ -45,7 +45,7 @@ with sync_playwright() as p:
     page.wait_for_load_state('networkidle')
 
     def saved():
-        expect(page.locator('.save-status')).to_have_text('Saved on device')
+        expect(page.locator('[data-save-state]')).to_have_attribute('data-save-state', 'saved')
 
     def nav(name):
         page.get_by_role('navigation').get_by_role('button', name=name, exact=True).click()
@@ -95,6 +95,8 @@ with sync_playwright() as p:
     backend.data['coaches'].append(second)
     falcons = next(t['id'] for t in backend.data['teams'] if t['name'] == 'Falcons')
     backend.data['teamCoaches'].append({'teamId': falcons, 'coachId': second['id']})
+    if page.locator('.workspace-status').get_attribute('open') is None:
+        page.locator('.workspace-status summary').click()
     page.get_by_role('button', name='Refresh & sync').click()
     page.get_by_role('button', name='Remove coach Second Coach').click()
     saved()
@@ -106,12 +108,11 @@ with sync_playwright() as p:
         page.screenshot(path=str(OUT / ('teams-' + label + '.png')), full_page=True)
 
     nav('Practice')
+    page.get_by_label('Practice team').select_option(label='Owls')
+    expect(page.get_by_label('Starting pitcher').locator('option')).to_have_count(1)
+    page.locator('.practice-options summary').click()
+    page.get_by_label('Practice name').fill('Owls bullpen')
     page.get_by_role('button', name='Start practice', exact=True).click()
-    dialog = page.get_by_role('dialog')
-    dialog.get_by_label('Practice team').select_option(label='Owls')
-    expect(dialog.get_by_label('Starting pitcher').locator('option')).to_have_count(1)
-    dialog.get_by_label('Practice name').fill('Owls bullpen')
-    dialog.get_by_role('button', name='Let’s practice').click()
     saved()
     page.get_by_role('button', name='Ball, up and in', exact=True).click()
     saved()

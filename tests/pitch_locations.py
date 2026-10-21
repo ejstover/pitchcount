@@ -39,7 +39,7 @@ with sync_playwright() as playwright:
     page.wait_for_load_state('networkidle')
 
     def saved():
-        expect(page.get_by_role('status')).to_have_text('Saved on device')
+        expect(page.locator('[data-save-state]')).to_have_attribute('data-save-state', 'saved')
 
     def nav(name):
         page.get_by_role('navigation').get_by_role('button', name=name, exact=True).click()
@@ -50,9 +50,9 @@ with sync_playwright() as playwright:
         dialog.get_by_label('Pitcher name').fill('Location Test')
         dialog.get_by_role('button', name='Add pitcher', exact=True).click()
     saved()
+    page.locator('.practice-options summary').click()
+    page.get_by_label('Practice name').fill('Five locations')
     page.get_by_role('button', name='Start practice', exact=True).click()
-    dialog.get_by_label('Practice name').fill('Five locations')
-    dialog.get_by_role('button', name='Let’s practice').click()
     saved()
     expect(page.locator('.pitch-target')).to_have_count(20)
     assert all(text == '' for text in page.locator('.pitch-location-map').all_inner_texts())

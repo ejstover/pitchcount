@@ -26,12 +26,12 @@ def exercise(browser, label):
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto(BASE_URL)
     page.wait_for_load_state('networkidle')
-    expect(page.get_by_role('heading', name='Practice.', exact=True)).to_be_visible()
+    expect(page.get_by_role('heading', name='Practice', exact=True)).to_be_visible()
     print(f'{label} initial buttons: {page.get_by_role("button").all_text_contents()}')
     page.screenshot(path=str(ARTIFACTS / f'{label}-welcome.png'), full_page=True)
 
     def saved():
-        expect(page.get_by_role('status')).to_have_text('Saved on device')
+        expect(page.locator('[data-save-state]')).to_have_attribute('data-save-state', 'saved')
 
     def nav(name):
         page.get_by_role('navigation').get_by_role('button', name='Roster' if name == 'Pitchers' else name, exact=True).click()
@@ -80,10 +80,10 @@ def exercise(browser, label):
     expect(page.locator('.pitcher-card')).to_have_count(1)
     page.get_by_role('searchbox', name='Search pitchers').fill('')
     nav('Practice')
+    page.locator('.practice-options summary').click()
+    page.get_by_label('Practice name').fill('Sunday bullpen')
+    page.get_by_label('Starting pitcher').select_option(label='Jordan Lee · #14')
     page.get_by_role('button', name='Start practice', exact=True).click()
-    dialog.get_by_label('Practice name').fill('Sunday bullpen')
-    dialog.get_by_label('Starting pitcher').select_option(label='Jordan Lee · #14')
-    dialog.get_by_role('button', name='Let’s practice').click()
     saved()
     count(0, 0)
     # Dispatch rapid taps before waiting for saves to exercise ordering.
