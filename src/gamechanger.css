@@ -1,0 +1,32 @@
+.gc-import { margin-bottom: 24px; }
+.gc-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
+.gc-import input, .gc-import select, .gc-statistics select { max-width: 100%; min-width: 0; }
+.gc-import input[type=file] { width: 100%; }
+.gc-mappings { border-top: 1px solid var(--border, #ddd); margin: 20px 0; }
+.gc-match { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 1fr); gap: 10px 20px; border-bottom: 1px solid var(--border, #ddd); padding: 18px 0; }
+.gc-match small, .gc-saved-row small, .gc-table small { display: block; font-size: 12px; color: var(--muted, #62676c); margin-top: 4px; }
+.gc-match .confirm-replace { grid-column: 2; margin: 0; }
+.gc-saved { margin-top: 24px; }
+.gc-saved-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-top: 1px solid var(--border, #ddd); padding: 16px 0; }
+.gc-saved-row strong, .gc-import p, .gc-import li { overflow-wrap: anywhere; }
+.gc-table-wrap { overflow-x: auto; margin: 20px 0; }
+.gc-table { border-collapse: collapse; width: 100%; min-width: 0; table-layout: fixed; font-variant-numeric: tabular-nums; }
+.gc-table caption { text-align: left; font-size: 13px; color: var(--muted, #62676c); padding-bottom: 12px; }
+.gc-table th, .gc-table td { text-align: right; padding: 12px 10px; min-width: 0; white-space: normal; overflow-wrap: anywhere; border-bottom: 1px solid var(--border, #ddd); }
+.gc-table th:first-child { text-align: left; }
+.gc-table thead { font-size: 12px; color: var(--muted, #62676c); }
+.gc-table tbody th { font-size: 13px; font-weight: 500; }
+.gc-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 18px; font-variant-numeric: tabular-nums; }
+.gc-detail-grid dt { color: var(--muted, #62676c); font-size: 12px; }
+.gc-detail-grid dd { margin: 4px 0 0; font-weight: 600; }
+.gc-statistics > .card { margin-bottom: 20px; }
+.gc-statistics details { margin-top: 20px; }
+.gc-statistics summary { cursor: pointer; }
+.gc-statistics .filter-bar { align-items: end; flex-wrap: wrap; }
+@media(max-width: 600px) {
+ .gc-fields, .gc-match { grid-template-columns: minmax(0, 1fr); }
+ .gc-match .confirm-replace { grid-column: 1; }
+ .gc-saved-row { align-items: stretch; flex-direction: column; }
+ .gc-table th, .gc-table td { padding: 10px 6px; font-size: 12px; }
+ .gc-statistics .filter-bar > * { width: 100%; }
+}

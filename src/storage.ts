@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie'
 import { createId as id } from './id'
+import type { GCImport, GCMapping, GCSummary } from './gamechanger'
 import { validateBackup, type Backup } from './backup'
 import { pitchLocations, project, type Appearance, type Pitcher, type PitchLocation, type PitchType, type Session, type SessionEvent, type Team, type Coach, type TeamCoach, type TeamPitcher, type Invitation } from './domain'
 
@@ -7,6 +8,8 @@ import { CloudError, type Gateway, type Identity, type SavePitcher, type Snapsho
 export type { Snapshot } from './shared'
 
 export class PitchDatabase extends Dexie {
+  gcSummaries!: Table<GCSummary, string>
+  gcMappings!: Table<GCMapping, [string, string, string]>
   teams!: Table<Team, string>
   pitchers!: Table<Pitcher, string>
   sessions!: Table<Session, string>
@@ -36,6 +39,7 @@ export class PitchDatabase extends Dexie {
       await tx.table('teams').toCollection().modify(t => { t.archived ??= false })
       await tx.table('sessions').toCollection().modify(s => { s.archived ??= false })
     })
+    this.version(4).stores({ gcSummaries: 'id, teamId, [teamId+season]', gcMappings: '[teamId+season+sourceKey], pitcherId' })
   }
 }
 const now = () => new Date().toISOString()
@@ -85,12 +89,13 @@ export class Repository {
       teams: (await this.db.teams.toArray()).map(t => ({...t, archived: t.archived ?? false})), pitchers: await this.db.pitchers.toArray(),
       coaches: await this.db.coaches.toArray(), teamCoaches: await this.db.teamCoaches.toArray(), teamPitchers: await this.db.teamPitchers.toArray(), invitations: await this.db.invitations.toArray(),
       sessions: (await this.db.sessions.toArray()).map(s => ({...s, archived: s.archived ?? false})), appearances: await this.db.appearances.toArray(), events: await this.db.events.toArray(),
+      gcSummaries: await this.db.gcSummaries.toArray(), gcMappings: await this.db.gcMappings.toArray(),
     }))
   }
   exportBackup(): Promise<Backup> {
     return this.serial(async () => {
-      const { teams, pitchers, sessions, events, teamPitchers } = await this.snapshot()
-      return validateBackup({ format: 'pitchwork-backup', version: 3, exportedAt: now(), teams, teamPitchers, pitchers, sessions, events })
+      const { teams, pitchers, sessions, events, teamPitchers, gcSummaries, gcMappings } = await this.snapshot()
+      return validateBackup({ format: 'pitchwork-backup', version: 4, exportedAt: now(), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings })
     })
   }
   restoreBackup(value: unknown, operationId = id()): Promise<void> {
@@ -111,6 +116,8 @@ export class Repository {
         await this.db.pitchers.bulkAdd(backup.pitchers)
         await this.db.sessions.bulkAdd(backup.sessions)
         await this.db.events.bulkAdd(backup.events)
+        await this.db.gcSummaries.bulkAdd(backup.gcSummaries)
+        await this.db.gcMappings.bulkAdd(backup.gcMappings)
         await this.db.appearances.bulkAdd(appearances)
       })
     })
@@ -121,6 +128,12 @@ export class Repository {
     if (!navigator.onLine) throw new Error('Reconnect to manage teams and assignments.')
     await this.gateway.manage(action, input)
     await this.refresh()
+  }
+  importGameChanger(input: GCImport): Promise<void> {
+    return this.serial(async () => { await this.manage('importGameChanger', { ...input }) })
+  }
+  removeGameChanger(summary: GCSummary, operationId = id()): Promise<void> {
+    return this.serial(async () => { await this.manage('removeGameChanger', { teamId: summary.teamId, season: summary.season, expectedRevision: summary.revision, expectedSummaryId: summary.id, operationId }) })
   }
   async previewRemoval(input: RemovalInput): Promise<RemovalPreview> {
     if (!this.gateway || !navigator.onLine) throw new Error('Reconnect to remove records.')
@@ -297,6 +310,7 @@ export class Repository {
       await this.db.teams.bulkPut(remote.teams.map(t => ({...t, archived: t.archived ?? false}))); await this.db.pitchers.bulkPut(remote.pitchers)
       await this.db.coaches.bulkPut(remote.coaches); await this.db.teamCoaches.bulkPut(remote.teamCoaches)
       await this.db.teamPitchers.bulkPut(remote.teamPitchers); await this.db.invitations.bulkPut(remote.invitations)
+      await this.db.gcSummaries.bulkPut(remote.gcSummaries ?? []); await this.db.gcMappings.bulkPut(remote.gcMappings ?? [])
       await this.db.sessions.bulkPut(sessions); await this.db.events.bulkPut(source)
       await this.db.appearances.bulkPut(sessions.flatMap(s => project(s, source.filter(e => e.sessionId === s.id)).appearances))
     })

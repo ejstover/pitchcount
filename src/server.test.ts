@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PitchDatabase, Repository } from './storage'
 import { CloudError, type Gateway, type Upload } from './shared'
+import { parseGameChanger, type GCImport, type GCSummary } from './gamechanger'
 
 const a = '10000000-0000-4000-8000-000000000001', b = '10000000-0000-4000-8000-000000000002'
 const admin = '10000000-0000-4000-8000-000000000003', device = '20000000-0000-4000-8000-000000000001'
@@ -18,6 +19,84 @@ async function invite(teamId: string, email = 'b@example.com') {
   await rpc('manage', 'invite', { teamId, email })
   return (await sql.query<{ id: string }>('select id from public.invitations where team_id=$1', [teamId])).rows[0].id
 }
+async function gcInput(teamId: string): Promise<GCImport> {
+  const parsed = parseGameChanger(readFileSync('tests/fixtures/gamechanger.csv', 'utf8'))
+  const players = []
+  for (const row of parsed.players) { const id = await pitcher([teamId]); players.push({ ...row, pitcherId: id }) }
+  return { ...parsed, players, teamId, season: 'Fall 2026', coverageStart: '2026-09-01', coverageEnd: '2026-10-20', fileName: 'stats.csv', operationId: crypto.randomUUID(), newPitchers: [], expectedRevision: 0, coverageConfirmed: true }
+}
+describe('GameChanger imports against PostgreSQL', () => {
+  it('atomically imports, deduplicates renamed/reordered exports, replaces with reductions, and detects conflicts', async () => {
+    const input = await gcInput(await team())
+    await rpc('manage', 'importGameChanger', input)
+    await rpc('manage', 'importGameChanger', input)
+    let data = await rpc<any>('get_workspace')
+    expect(data.gcSummaries).toHaveLength(1); expect(data.gcMappings).toHaveLength(4); expect(data.events).toEqual([])
+    const first = data.gcSummaries[0] as GCSummary
+    expect(first.players.reduce((n, p) => n + p.stats.pitches!, 0)).toBe(535)
+    await rpc('manage', 'importGameChanger', { ...input, players: [...input.players].reverse(), fileName: 'renamed(6).csv', operationId: crypto.randomUUID(), expectedRevision: 1 })
+    expect((await rpc<any>('get_workspace')).gcSummaries[0].revision).toBe(1)
+    const replacement = structuredClone(input); replacement.operationId = crypto.randomUUID(); replacement.expectedRevision = 1; replacement.players = replacement.players.slice(0, 1); replacement.players[0].stats.pitches = 100
+    await rpc('manage', 'importGameChanger', replacement)
+    data = await rpc<any>('get_workspace'); expect(data.gcSummaries[0].revision).toBe(2); expect(data.gcSummaries[0].players).toHaveLength(1)
+    await expect(rpc('manage', 'importGameChanger', { ...input, operationId: crypto.randomUUID(), expectedRevision: 1 })).rejects.toThrow('Refresh')
+    await expect(rpc('manage', 'importGameChanger', { ...input, coverageEnd: '2026-10-21' })).rejects.toThrow('Operation ID')
+  })
+  it('rejects viewers, suspended and unrelated coaches, forged mappings, missing confirmation and malformed counts', async () => {
+    const input = await gcInput(await team()), outsider = await pitcher([])
+    await expect(rpc('manage', 'importGameChanger', { ...input, coverageConfirmed: false })).rejects.toThrow('Confirm')
+    const bad = structuredClone(input); bad.players[0].stats.pitches = -1
+    await expect(rpc('manage', 'importGameChanger', bad)).rejects.toThrow('Invalid GameChanger')
+    bad.players[0].stats.pitches = 10; bad.players[0].pitcherId = outsider
+    await expect(rpc('manage', 'importGameChanger', bad)).rejects.toThrow('on this team')
+    await login(b)
+    await expect(rpc('manage', 'importGameChanger', input)).rejects.toThrow('access denied')
+    expect((await rpc<any>('get_workspace')).gcSummaries).toEqual([])
+    await sql.exec(`reset role; update public.coaches set role='viewer' where id='${a}';`); await login(a)
+    await expect(rpc('manage', 'importGameChanger', input)).rejects.toThrow('Approved coach')
+    await sql.exec(`reset role; update public.coaches set role='coach',active=false where id='${a}';`); await login(a)
+    await expect(rpc('manage', 'importGameChanger', input)).rejects.toThrow('Approved coach')
+  })
+  it('creates only requested players in the transaction and rolls them back on conflict', async () => {
+    const input = await gcInput(await team())
+    await rpc('manage', 'importGameChanger', input)
+    const changed = structuredClone(input), id = crypto.randomUUID()
+    changed.operationId = crypto.randomUUID(); changed.players[0].pitcherId = id; changed.newPitchers = [{ id, name: 'New Pitcher', jersey: '9' }]
+    await expect(rpc('manage', 'importGameChanger', changed)).rejects.toThrow('Refresh')
+    expect((await rpc<any>('get_workspace')).pitchers.some((p: any) => p.id === id)).toBe(false)
+    changed.expectedRevision = 1; await rpc('manage', 'importGameChanger', changed); await rpc('manage', 'importGameChanger', changed)
+    expect((await rpc<any>('get_workspace')).pitchers.filter((p: any) => p.id === id)).toHaveLength(1)
+  })
+  it('keeps historical players visible, blocks dependent deletion, and removes a summary with safe retry', async () => {
+    const input = await gcInput(await team()), pid = input.players[0].pitcherId
+    await rpc('manage', 'importGameChanger', input)
+    await rpc('manage', 'setPitcher', { teamId: input.teamId, pitcherId: pid, active: false })
+    const invitation = await invite(input.teamId); await login(b); await rpc('manage', 'acceptInvitation', { id: invitation, teamId: input.teamId })
+    expect((await rpc<any>('get_workspace')).pitchers.some((p: any) => p.id === pid)).toBe(true)
+    const preview = await rpc<any>('manage', 'removalPreview', { kind: 'pitcher', id: pid })
+    expect(preview.deleteBlockers.join(' ')).toContain('GameChanger summaries')
+    const removal = { teamId: input.teamId, season: input.season, expectedRevision: 1, operationId: crypto.randomUUID() }
+    await rpc('manage', 'removeGameChanger', removal); await rpc('manage', 'removeGameChanger', removal)
+    expect((await rpc<any>('get_workspace')).gcSummaries).toEqual([])
+    await login(a)
+    await rpc('manage', 'importGameChanger', input) // old operation receipt cannot resurrect deleted summaries
+    expect((await rpc<any>('get_workspace')).gcSummaries).toEqual([])
+  })
+  it('restores version 4 with fresh references, preserves original records and retries once', async () => {
+    const input = await gcInput(await team()); await rpc('manage', 'importGameChanger', input)
+    const data = await rpc<any>('get_workspace')
+    const restore = { operationId: crypto.randomUUID(), deviceId: device, backup: { ...data, format: 'pitchwork-backup', version: 4 } }
+    await rpc('manage', 'restore', restore); await rpc('manage', 'restore', restore)
+    const result = await rpc<any>('get_workspace')
+    expect(result.gcSummaries).toHaveLength(2); expect(result.teams).toHaveLength(2)
+    const copy = result.gcSummaries.find((s: GCSummary) => s.teamId !== input.teamId) as GCSummary
+    expect(copy.players.every(p => !input.players.some(old => old.pitcherId === p.pitcherId))).toBe(true)
+    expect(result.gcMappings.filter((m: any) => m.teamId === copy.teamId).map((m: any) => m.pitcherId).sort()).toEqual(copy.players.map(p => p.pitcherId).sort())
+    const malformed = structuredClone(restore); malformed.operationId = crypto.randomUUID(); malformed.backup.gcSummaries[0].players[0].pitcherId = crypto.randomUUID()
+    await expect(rpc('manage', 'restore', malformed)).rejects.toThrow('Missing backup GC pitcher')
+    expect((await rpc<any>('get_workspace')).teams).toHaveLength(2)
+  })
+})
 async function operations(pid: string, teamId: string | null, owner = a, ended = false) {
   const db = new PitchDatabase(`sql-fixture-${crypto.randomUUID()}`)
   const repo = new Repository(db, { coachId: owner, deviceId: device })
@@ -39,6 +118,8 @@ beforeAll(async () => {
   await sql.exec(readFileSync('supabase/migrations/202610190001_accounts.sql', 'utf8'))
   await sql.exec(readFileSync('supabase/migrations/202610190002_teams.sql', 'utf8'))
   await sql.exec(readFileSync('supabase/migrations/202610210001_removal.sql', 'utf8'))
+  await sql.exec(readFileSync('supabase/migrations/202610210002_gamechanger.sql', 'utf8'))
+  await sql.exec(readFileSync('supabase/migrations/202610210003_gamechanger_workspace.sql', 'utf8'))
 }, 30_000)
 beforeEach(async () => {
   await sql.exec(`reset role; truncate public.account_deletions,public.removal_visibility,public.record_tombstones,public.operation_receipts, public.practices, public.invitations, public.team_pitchers, public.pitchers, public.team_coaches, public.teams, public.coaches, public.account_provisions, auth.users cascade;

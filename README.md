@@ -77,6 +77,29 @@ The Statistics date filter applies to summary metrics, the map, and the session 
 
 Run `python tests/statistics_browser.py` against the mocked Supabase Vite environment described in `tests/auth_mock.py` for heat-map/date acceptance checks. Run `tests/pitch_locations.py` with `PITCHWORK_AUTH_FIXTURE=1` for recording-target and backup-location regression checks. Both cover layouts at 320, 390, 768, and 1440 pixels, with screenshots in `.test-artifacts/`.
 
+## GameChanger season summaries
+
+In Settings, choose **Import GameChanger CSV**. Export standard stats from GC with all intended games included, then choose the destination team, confirm the season name and coverage dates, and match each participating pitcher. Name and jersey suggestions require confirmation; confirmed matches are remembered. You can create a pitcher or skip a row explicitly. Review totals and warnings before importing.
+
+Each team/season has one current summary. An unchanged export is detected even when renamed or reordered. **Replace summary** replaces the entire summary, including removal of omitted players; decreased totals are allowed for GC scoring corrections. Coverage labels are supplied by the coach because the CSV does not identify its games or date range. Imports require an online approved coach assigned to the team (or an admin). Saved summaries can be read offline and removed in Settings.
+
+Statistics defaults to **Practice**. Choose **GameChanger** or **Combined**, then select a team and season. Selecting a season sets the practice date range to its coverage. A narrower filter excludes GC rather than prorating its totals. Combined counts use selected pitcher rows; GC's reported team Totals remain a separate reference and discrepancies are surfaced. Games pitched are never summed into unique team games.
+
+Combined strike and first-pitch strike rates are **estimates**, weighted by GC pitches and batters faced respectively. Missing rates display as unavailable. Practice/game scoring definitions can differ. Innings, ERA, WHIP, and other game-only values stay in the GC detail view. Summaries create no synthetic pitches, appearances, or locations; heat maps and pitch-outcome breakdowns continue to use practice events. Season totals cannot reconstruct individual games, partial-period trends, or daily workload.
+
+JSON backups now use version 4 and include summaries and remembered mappings. Versions 1–3 still restore. Production restore creates new copies with remapped team/player references and preserves existing records. Remove related summaries before permanently deleting a referenced team or pitcher; archiving retains them.
+
+Deploy the backend **before** publishing the new frontend:
+
+```sh
+npx supabase db push --dry-run
+npx supabase db push
+npm test
+npm run build
+```
+
+The incremental `202610210002_gamechanger.sql` migration adds permission-checked, atomic imports with revision conflict detection and operation receipts. `202610210003_gamechanger_workspace.sql` ensures roster and summary reads remain consistent during concurrent imports. The frontend stays local until committed/published through the usual deployment workflow. Unit and PostgreSQL coverage runs through `npm test`. Browser acceptance is `python tests/gamechanger_browser.py` using the test-only Vite settings documented above (set `PITCHWORK_BASE_URL` to the server URL).
+
 ## Storage and architecture
 
 - `src/domain.ts`: pure event replay and metrics, independent of React and IndexedDB.
@@ -92,7 +115,7 @@ The single save and sync indicator beside the page title reports **All changes s
 
 ## Backup, transfer, and recovery
 
-In Settings, choose **Download backup**. Version 2 includes teams, pitchers, team–pitcher memberships, practice team/recorder attribution, notes, locations, and original source events including undo history. Account credentials, invitations, and coach access grants are excluded. Version 1 files are normalized when read.
+In Settings, choose **Download backup**. Version 4 includes teams, pitchers, team–pitcher memberships, practice team/recorder attribution, notes, locations, original source events including undo history, and GameChanger summaries and player mappings. Account credentials, invitations, and coach access grants are excluded. Versions 1–3 are normalized when read.
 
 Import requires an online approved coach account. Choose **Restore from a JSON backup**, review the preview, confirm that separate copies will be imported, and choose **Import backup copies**. The server creates fresh IDs and new teams assigned only to the importing coach. Existing shared records stay intact, and imported practices are read-only history. Source appearances are rebuilt rather than trusted from the file. Imports are atomic and use a stable request ID for safe retry.
 
@@ -149,4 +172,4 @@ npm run build
 
 The incremental `202610210001_removal.sql` migration adds archive metadata, permission-checked removal, and private deletion markers. Existing upload/restore receipts are reduced to hashes so permanent deletion does not leave historical content in receipts. Deleted IDs cannot be recreated by stale save requests or uploads. Rejected offline work stays available through recovery export. Account deletion removes application access before deleting the authentication user; if authentication cleanup fails, use **Finish account deletion** in account administration to retry.
 
-Backups export version 3 with team/practice archive state; versions 1 and 2 still import with those records active. Import creates fresh IDs in the shared workspace. Previously exported backup files remain independent copies.
+Backups export version 4 with team/practice archive state and GameChanger summaries; versions 1 and 2 still import with those records active, and version 3 preserves archive state. Import creates fresh IDs in the shared workspace. Previously exported backup files remain independent copies.
