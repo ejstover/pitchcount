@@ -47,7 +47,7 @@ App icons can be regenerated from the existing mark with `python scripts/generat
 
 1. In Roster → Teams, create teams and assign pitchers and coaches. A pitcher or coach can belong to multiple teams. Add pitchers with an optional jersey number and any number of team selections.
 2. Start a named or unnamed practice and choose its team, or Independent for a private practice. Its team stays fixed. Each recording device has one active or paused practice; other coaches’ practices are read-only and do not block yours.
-3. Each **BALL**, **STRIKE**, **FOUL**, and **IN PLAY** tile has four quadrants and a center circle. Tap a region to record both the outcome and pitch location in one action: top left is up/in, top right is up/out, bottom left is down/in, bottom right is down/out, and the circle is down the middle. Strike records a called strike; **Record swinging strike** records a swinging strike without a location. Locations appear in Recent pitches and session history; older pitches show “Not recorded.”
+3. Each **BALL**, **STRIKE**, **FOUL**, and **IN PLAY** tile has four quadrants and a center circle. Tap a region to record both the outcome and pitch location in one action: upper left, upper right, lower left, lower right, or middle, from the **pitcher's view looking toward home plate**. Strike records a called strike; **Record swinging strike** records a swinging strike without a location. Locations appear in Recent pitches and session history; older pitches show “Not recorded.” Historical “in” locations remain on the left and “out” locations on the right, matching the original recording controls. Saved location keys are unchanged.
 4. Walks, strikeouts, and balls in play automatically start the next batter. **Next batter** manually ends the current batter. **Reset count** retains the pitches and starts a new batter marked as a manual reset.
 5. Changing pitchers manually ends the current batter and starts a fresh 0–0 count, including when returning to an earlier pitcher.
 6. Undo reverses the latest recorded pitch in the entire session, selecting its pitcher. Automatic completions are reversed. Later manual boundaries are preserved. The undone event remains in the audit history.
@@ -66,6 +66,16 @@ Remove a pitcher from one team through its roster; their other memberships and h
 - **Walk percentage:** walks / batters faced × 100.
 - **Pitches per batter:** total pitches / batters faced.
 - Empty denominators display “—”. Manually ending, switching, resetting, or ending a practice never creates a walk or strikeout.
+
+### Pitch locations and date ranges
+
+Statistics defaults to **All time + All pitches**, combining all history available to the signed-in coach, including archived practices and pitchers. The five-region heat map shows counts and percentages from the pitcher's view. Choose **Balls**, **Strikes** (called and swinging), **Fouls**, or **In play** to examine one outcome without changing the summary statistics. Each pitcher in session review also has an independent map for their complete session.
+
+Percentages use only pitches with a recorded location for the selected outcome. “Locations recorded for X of Y pitches” shows coverage, including older or swinging-strike records without a location. Undone pitches are excluded. Every view uses the same 0–100% color scale and identifies the most frequent region, including ties. Ball locations show where pitches ended up; measuring misses from a target would also require recording the intended target. No exact coordinates or batter handedness are inferred.
+
+The Statistics date filter applies to summary metrics, the map, and the session list, intersecting with pitcher, team, and session-scope selections. **This week** begins Sunday and ends today; **Last week** is the previous Sunday–Saturday; **Last two weeks** includes today and the preceding 13 days; **Last month** is the previous complete calendar month. **Custom range** requires both inclusive dates and an explicit **Apply**; invalid or unapplied edits retain the previously applied range. The displayed dates use the viewer's local calendar and each practice's start date, including all of that practice's pitches even if recording crosses midnight. Filters remain selected during navigation and reset to their defaults on a fresh app load. Session-review maps always show the complete selected session.
+
+Run `python tests/statistics_browser.py` against the mocked Supabase Vite environment described in `tests/auth_mock.py` for heat-map/date acceptance checks. Run `tests/pitch_locations.py` with `PITCHWORK_AUTH_FIXTURE=1` for recording-target and backup-location regression checks. Both cover layouts at 320, 390, 768, and 1440 pixels, with screenshots in `.test-artifacts/`.
 
 ## Storage and architecture
 
@@ -120,7 +130,7 @@ On Windows, check DNS with `Resolve-DnsName count.twelvefs.com -Type CNAME`. Cer
 
 ## Later phases
 
-- **Phase 2:** trends, date filters, comparisons, editable global/per-pitcher coaching goals, and CSV exports. Initial coaching targets: 65% overall strikes, 60% first-pitch strikes, and walks below 10%.
+- **Phase 2:** trends, comparisons, editable global/per-pitcher coaching goals, and CSV exports. Initial coaching targets: 65% overall strikes, 60% first-pitch strikes, and walks below 10%.
 - Installation, offline reopening, and JSON backup/restore have been brought forward from Phase 3. Further mobile polish remains iterative.
 
 Simultaneous recording into the same practice and additional sign-in providers are outside this version.

@@ -13,9 +13,9 @@ BASE_URL = os.environ.get('PITCHWORK_BASE_URL', 'http://127.0.0.1:5173')
 ARTIFACTS = Path(__file__).resolve().parents[1] / '.test-artifacts'
 ARTIFACTS.mkdir(exist_ok=True)
 LOCATIONS = {
-    'upIn': 'Up and in', 'upOut': 'Up and out',
-    'downIn': 'Down and in', 'downOut': 'Down and out',
-    'middle': 'Down the middle',
+    'upIn': 'Upper left', 'upOut': 'Upper right',
+    'downIn': 'Lower left', 'downOut': 'Lower right',
+    'middle': 'Middle',
 }
 
 
@@ -96,7 +96,7 @@ with sync_playwright() as playwright:
     saved()
     expected.append(('ball', 'upIn'))
     expect(page.locator('.score-side strong').first).to_have_text(str(len(expected)))
-    expect(page.locator('.pitch-log li').first).to_contain_text('Up and in')
+    expect(page.locator('.pitch-log li').first).to_contain_text('Upper left')
 
     # Rapid taps retain both outcome and location, including batter completions.
     rapid = [('called', 'upOut'), ('ball', 'downIn'), ('inPlay', 'middle')]
@@ -109,12 +109,12 @@ with sync_playwright() as playwright:
     expect(page.locator('.score-side strong').first).to_have_text(str(len(expected)))
     page.get_by_role('button', name='Undo last pitch').click()
     saved()
-    expect(page.locator('.pitch-log li').first).to_contain_text('Down the middle')
+    expect(page.locator('.pitch-log li').first).to_contain_text('Middle')
     expect(page.locator('.pitch-log li').first).to_contain_text('undone')
     page.reload()
     saved()
     expect(page.locator('.score-side strong').first).to_have_text(str(len(expected) - 1))
-    expect(page.locator('.pitch-log li').first).to_contain_text('Down the middle')
+    expect(page.locator('.pitch-log li').first).to_contain_text('Middle')
 
     page.get_by_role('button', name='Pause', exact=True).click()
     saved()

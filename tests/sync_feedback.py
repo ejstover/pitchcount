@@ -108,7 +108,7 @@ with sync_playwright() as p:
     backend.hold = True
     with page.expect_request(lambda req: '/rest/v1/rpc/get_workspace' in req.url and req.method == 'POST'):
         page.get_by_role('button', name='Refresh & sync').click()
-    page.get_by_role('button', name='Ball, up and in', exact=True).click()
+    page.get_by_role('button', name='Ball, upper left', exact=True).click()
     expect(page.locator('[data-save-state]')).to_have_attribute('data-save-state', 'saved')
     backend.release()
     expect(feedback).to_have_text('Changes still waiting to sync')

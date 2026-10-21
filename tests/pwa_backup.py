@@ -113,7 +113,7 @@ with sync_playwright() as p:
     nav(target, 'Sessions')
     target.locator('.session-row').click()
     expect(target.locator('.history-log tbody tr')).to_have_count(2)
-    expect(target.locator('.history-log')).to_contain_text('Down the middle')
+    expect(target.locator('.history-log')).to_contain_text('Middle')
     target_context.set_offline(True)
     target.reload()
     saved(target)
