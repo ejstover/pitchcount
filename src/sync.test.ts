@@ -148,3 +148,45 @@ describe('account-scoped offline session synchronization', () => {
     await expect(repo.saveTeam({ name: 'Closed account' })).rejects.toThrow('closed')
   })
 })
+
+
+describe('removal synchronization', () => {
+  it('does not resurrect a deleted practice even if the cached owned revision is newer', async () => {
+    const sid = await repo.startSession('p1','Removed','t1')
+    await repo.act(sid,'end'); await repo.sync()
+    await db.sessions.update(sid,{revision:99})
+    remote.sessions=[];remote.events=[];remote.deletions=[{kind:'session',id:sid}]
+    await repo.sync()
+    expect((await repo.snapshot()).sessions).toEqual([])
+    expect(await db.events.count()).toBe(0);expect(await db.appearances.count()).toBe(0)
+    // The marker remains effective across a later snapshot and browser reopen.
+    await db.sessions.put({...uploads.at(-1)!.session,revision:100})
+    remote.deletions=[];await repo.sync()
+    expect((await repo.snapshot()).sessions).toEqual([])
+  })
+  it('keeps rejected deleted work available in recovery without showing it in history', async () => {
+    const sid = await repo.startSession('p1','Removed','t1')
+    await repo.act(sid,'pitch','ball');await repo.act(sid,'end')
+    remote.deletions=[{kind:'session',id:sid}]
+    failure=new CloudError('Practice was permanently deleted','40001');await repo.sync()
+    expect((await repo.snapshot()).sessions).toEqual([])
+    expect((await repo.exportRecovery()).operations[0].events).toHaveLength(2)
+  })
+  it('uses remote archive state even when cached scoring has a newer revision', async () => {
+    const sid=await repo.startSession('p1','Archived','t1');await repo.act(sid,'end');await repo.sync()
+    await db.sessions.update(sid,{revision:99})
+    remote.sessions[0].archived=true;await repo.sync()
+    expect((await db.sessions.get(sid))?.archived).toBe(true)
+    await expect(repo.saveNotes(sid,'No edits')).rejects.toThrow('Reactivate')
+  })
+  it('blocks local practice creation for an archived team', async () => {
+    await db.teams.update('t1',{archived:true})
+    await expect(repo.startSession('p1','Blocked','t1')).rejects.toThrow('active team')
+  })
+  it('exports events in sequence order for immutable server replay', async () => {
+    const sid=await repo.startSession('p1','Ordered','t1')
+    for (let i=0;i<10;i++) await repo.act(sid,'pitch','foul')
+    await repo.act(sid,'end')
+    expect((await repo.pendingUploads())[0].events.map(e=>e.sequence)).toEqual(Array.from({length:11},(_,i)=>i+1))
+  })
+})

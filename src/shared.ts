@@ -3,7 +3,16 @@ import type { Appearance, Coach, Invitation, Pitcher, Session, SessionEvent, Tea
 export interface Snapshot {
   teams: Team[]; pitchers: Pitcher[]; coaches: Coach[]; teamPitchers: TeamPitcher[]; teamCoaches: TeamCoach[]
   invitations: Invitation[]; sessions: Session[]; appearances: Appearance[]; events: SessionEvent[]
+  deletions?: { kind: RemovalKind; id: string }[]
 }
+export type RemovalKind = 'pitcher' | 'team' | 'session' | 'coach' | 'request'
+export interface RemovalTarget { kind: RemovalKind; id: string; name: string; archived: boolean }
+export interface RemovalPreview {
+  name: string; canRemove: boolean; archiveBlockers: string[]; deleteBlockers: string[]
+  practices: { id: string; name: string }[]; hiddenPractices: number
+  assignments: number; invitations: number; ownedPitchers?: number
+}
+export interface RemovalInput { kind: RemovalKind; id: string; confirmation?: string; archived?: boolean }
 export const emptySnapshot = (): Snapshot => ({ teams: [], pitchers: [], coaches: [], teamPitchers: [], teamCoaches: [], invitations: [], sessions: [], appearances: [], events: [] })
 export interface Identity { coachId: string; deviceId: string }
 export interface Upload { id: string; sessionId: string; expectedRevision: number; session: Session; events: SessionEvent[]; blocked?: string; inFlight?: boolean }

@@ -8,7 +8,7 @@ Production address: **https://count.twelvefs.com** (requires the GitHub Pages an
 
 1. Configure Supabase and email/password login using [the account setup guide](docs/AUTH.md), then open **https://count.twelvefs.com** in Safari while online.
 2. Use **Share → Add to Home Screen**. Choose **Open as Web App** if Safari offers that option.
-3. Launch Pitchwork from its home-screen icon while still online. Wait for **Ready offline** in the connection strip.
+3. Launch Pitchwork from its home-screen icon while still online. Open the save and sync status beside the page title and check for **Ready offline**.
 4. Sign in with your approved account, create or join a team, assign pitchers, and start practice. Your PC does not need to be running.
 5. In Settings, periodically **Download backup** and save the JSON file in Files or another location you can recover.
 
@@ -53,7 +53,7 @@ App icons can be regenerated from the existing mark with `python scripts/generat
 6. Undo reverses the latest recorded pitch in the entire session, selecting its pitcher. Automatic completions are reversed. Later manual boundaries are preserved. The undone event remains in the audit history.
 7. Pause/resume as needed. End the session to move it into history. Notes can also be saved on historical sessions. Unsaved note drafts remain available when switching tabs within the app; save them before closing it.
 
-Remove a pitcher from one team through its roster; their other memberships and historical practice references remain. A pitcher can be archived after all team assignments are removed and reactivated without losing history. Change the selected pitcher or end any ongoing session before archiving that pitcher. There are no application-imposed limits on pitchers, teams, or sessions; available browser storage is the practical limit.
+Remove a pitcher from one team through its roster; their other memberships and historical practice references remain. Use **Remove** on a player, team, coach account, or practice to choose history-preserving removal or permanent deletion. Players can be archived after active roster assignments are removed; teams and ended practices can also be archived and reactivated. Archived records remain in history and statistics. End related ongoing practices before archiving players or teams. Only admins may suspend or delete coach accounts; suspension prevents sign-in while preserving history. Delete related practices individually before permanently deleting a player, team, or coach. Permanent deletion requires typing the displayed name or email and cannot be undone. Assigned coaches can delete ended practices within their teams. Shared players require ownership, admin access, or management access to every assigned team for global removal; otherwise remove the team assignment. Active teams must retain an active coach. Save notes and sync changes before removal. There are no application-imposed limits on pitchers, teams, or sessions; available browser storage is the practical limit.
 
 ## Statistics
 
@@ -78,7 +78,7 @@ Remove a pitcher from one team through its roster; their other memberships and h
 
 Locally saved data belongs to this browser profile and origin (protocol, hostname, and port). Synced team data is available to its assigned coaches; independent practices stay private to their recorder. Use the final custom domain consistently. Clearing browser/site data removes both records and offline caches. Settings can request persistent storage where supported, but browser protection does not replace an external backup. The source repository and hosted frontend are public; practice records are stored in the private Supabase database and protected by current account status and team membership. Browser bundles contain only public connection settings.
 
-The connection strip reports **Waiting to sync**, **Synced**, or sync errors independently of **Saved on device**, network status, and offline readiness. Reconnect or choose **Refresh & sync** to retry. A rejected upload is preserved for recovery; Settings can export unsynced work before clearing blocked uploads. An available update waits for your explicit action. Pause or end practice, save all notes, let pending saves finish, and close forms or restore previews before choosing **Update app**. App updates preserve the IndexedDB database.
+The single save and sync indicator beside the page title reports **All changes synced**, pending uploads, offline status, unsaved notes, or errors. Expand it to see local saves, team sync, connection, and offline readiness separately, or choose **Refresh & sync** to retry. A rejected upload is preserved for recovery; Settings can export unsynced work before clearing blocked uploads. An available update waits for your explicit action. Pause or end practice, save all notes, let pending saves finish, and close forms or restore previews before choosing **Update app**. App updates preserve the IndexedDB database.
 
 ## Backup, transfer, and recovery
 
@@ -123,4 +123,20 @@ On Windows, check DNS with `Resolve-DnsName count.twelvefs.com -Type CNAME`. Cer
 - **Phase 2:** trends, date filters, comparisons, editable global/per-pitcher coaching goals, and CSV exports. Initial coaching targets: 65% overall strikes, 60% first-pitch strikes, and walks below 10%.
 - Installation, offline reopening, and JSON backup/restore have been brought forward from Phase 3. Further mobile polish remains iterative.
 
-Permanent deletion, simultaneous recording into the same practice, and additional sign-in providers are outside this version.
+Simultaneous recording into the same practice and additional sign-in providers are outside this version.
+
+
+## Deploying removal support
+
+Deploy backend changes before publishing the new frontend:
+
+```sh
+npx supabase db push
+npx supabase functions deploy accounts --use-api
+npm test
+npm run build
+```
+
+The incremental `202610210001_removal.sql` migration adds archive metadata, permission-checked removal, and private deletion markers. Existing upload/restore receipts are reduced to hashes so permanent deletion does not leave historical content in receipts. Deleted IDs cannot be recreated by stale save requests or uploads. Rejected offline work stays available through recovery export. Account deletion removes application access before deleting the authentication user; if authentication cleanup fails, use **Finish account deletion** in account administration to retry.
+
+Backups export version 3 with team/practice archive state; versions 1 and 2 still import with those records active. Import creates fresh IDs in the shared workspace. Previously exported backup files remain independent copies.

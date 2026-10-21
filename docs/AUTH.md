@@ -54,3 +54,10 @@ First sign-in and first team download require internet. Afterward, the last appr
 `npm test` checks the real database migrations and authorization rules in PGlite. Browser fixtures in `tests/auth_mock.py` exercise password login, private setup, expired/reused links, admin creation, account isolation, and offline reopening. They do not create a production authentication bypass. Run `tests/auth_ui.py` against a Vite server using the fixture settings documented in that helper; production PWA checks also set `PITCHWORK_PWA=1`.
 
 Before broad use, verify the real setup link/password flow and installed PWA on a physical iPhone. Free-tier limits or project pausing may affect online access; external backups remain useful. No paid plan is enabled by this code.
+
+
+## Account removal
+
+Account administration offers **Remove account** with suspension/reactivation or permanent deletion. The admin account is protected. Active teams must retain another active coach before suspension or deletion. Recorded practices must be deleted individually before account deletion; remaining player ownership transfers to the administrator without changing memberships. Access requests can also be deleted with email confirmation.
+
+Deploy `202610210001_removal.sql` before deploying the updated accounts function and client. Permanent deletion removes the profile, assignments, invitations, provision, related access request, and hash-only operation receipts, then calls the authentication Admin API. A private pending cleanup ID supports retry after an authentication API failure; **Finish account deletion** completes the cleanup. No deleted email or name is kept in that job.

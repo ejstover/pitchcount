@@ -1,0 +1,227 @@
+/* Option 3: one light surface, horizontal navigation, and quiet status. */
+@font-face { font-family: 'DM Sans'; src: url('/fonts/dm-sans-regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'DM Sans'; src: url('/fonts/dm-sans-medium.ttf') format('truetype'); font-weight: 500; font-display: swap; }
+@font-face { font-family: 'DM Sans'; src: url('/fonts/dm-sans-semibold.ttf') format('truetype'); font-weight: 600; font-display: swap; }
+@font-face { font-family: 'DM Sans'; src: url('/fonts/dm-sans-bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
+
+:root { font-family: 'DM Sans', 'Segoe UI', sans-serif; color: #193a32; background: #faf9f6; --muted: #637574; --line: #dce1dc; --green: #173e32; }
+body { background: #faf9f6; }
+button { font-weight: 600; border-radius: 6px; }
+input, select, textarea { border-color: #d0d8d2; border-radius: 6px; }
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline-color: #36815d; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.app-shell { display: block; }
+.app-header { min-height: 80px; padding: 0 max(32px, calc((100vw - 1560px) / 2 + 60px)); display: flex; align-items: center; gap: 42px; border-bottom: 1px solid var(--line); }
+.app-header .brand { flex-shrink: 0; font-size: 27px; letter-spacing: -1px; gap: 10px; color: #193a32; }
+.app-header .brand-mark { width: 31px; height: 40px; font-size: 46px; line-height: 34px; color: #3a7c45; }
+.app-header .brand-mark span { font-size: 32px; }
+.app-header nav { display: flex; align-self: stretch; align-items: stretch; gap: 8px; flex: 1; min-width: 0; }
+.app-header .nav-item { position: relative; display: flex; justify-content: center; gap: 8px; width: auto; padding: 12px 18px; font-size: 16px; font-weight: 400; color: #203c36; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; }
+.app-header .nav-item > svg { display: none; }
+.app-header .nav-item:last-child { margin-left: auto; }
+.app-header .nav-item:last-child > svg { display: block; }
+.app-header .nav-item.selected { font-weight: 700; border-bottom-color: #76a751; }
+.app-header .nav-item:hover:not(:disabled) { background: #edf1e9; }
+.app-header .nav-item.selected:hover { background: transparent; }
+.app-header .nav-item.selected::after { display: none; }
+.nav-dot { margin-left: 0; background: #3a7c45; }
+.coach-menu { padding: 0 0 0 24px; gap: 12px; border: 0; border-left: 1px solid var(--line); border-radius: 0; background: transparent; font-weight: 400; max-width: 230px; text-align: left; }
+.coach-initials { display: flex; align-items: center; justify-content: center; min-width: 42px; height: 42px; background: #e0eecb; border-radius: 50%; font-weight: 600; font-size: 16px; }
+.coach-name { overflow-wrap: anywhere; }
+.workspace { width: 100%; margin: 0; padding: 0; }
+.workspace > main { max-width: 1560px; padding: 62px 60px 64px; }
+.page-heading { position: relative; align-items: center; margin-bottom: 0; padding-bottom: 40px; border-bottom: 1px solid var(--line); gap: 24px; }
+.page-heading h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 56px; line-height: 1.15; letter-spacing: -1.7px; font-weight: 700; }
+.page-heading p { font-size: 20px; line-height: 1.55; margin-top: 8px; max-width: 620px; }
+.heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 18px; flex-wrap: wrap; }
+.workspace-status { position: relative; font-size: 15px; white-space: nowrap; z-index: 25; }
+.workspace-status summary { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 48px; cursor: pointer; list-style: none; border-radius: 5px; }
+.workspace-status summary::-webkit-details-marker { display: none; }
+.workspace-status summary > svg { transform: rotate(90deg); margin-left: 5px; }
+.workspace-status[open] summary > svg { transform: rotate(-90deg); }
+.status-dot { flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%; background: #43874c; }
+.workspace-status.waiting .status-dot { background: #a36d16; }
+.workspace-status.needs-attention .status-dot { background: #a43e2b; }
+.workspace-status.needs-attention summary { color: #8b3527; }
+.status-details { position: absolute; top: calc(100% + 8px); right: 0; width: min(330px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--line); border-radius: 8px; background: #fff; box-shadow: 0 8px 24px #142b2612; white-space: normal; }
+.status-details dl { margin: 0; display: grid; gap: 16px; }
+.status-details dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; }
+.status-details dt { color: var(--muted); font-size: 13px; }
+.status-details dd { text-align: right; font-size: 13px; margin: 0; }
+.status-details button { margin-top: 16px; border-top: 1px solid var(--line); border-radius: 0; width: 100%; justify-content: space-between; }
+.primary { background: #173e32; border-color: #173e32; }
+.primary:hover:not(:disabled) { background: #275642; }
+.text-button { color: #244b3e; font-size: 14px; font-weight: 500; }
+.practice-start { padding: 34px 0 20px; border-bottom: 1px solid var(--line); }
+.practice-start h2, .recent-sessions h2 { font-size: 25px; letter-spacing: -.65px; }
+.practice-start > p { color: var(--muted); font-size: 18px; margin-top: 9px; }
+.start-form { margin-top: 30px; }
+.start-fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; align-items: end; }
+.start-fields label, .practice-options label { display: grid; gap: 10px; font-size: 15px; font-weight: 400; min-width: 0; }
+.start-fields select { height: 60px; font-size: 16px; padding: 14px 18px; }
+.start-button { min-height: 60px; font-size: 18px; gap: 14px; }
+.practice-options { margin-top: 10px; color: var(--muted); font-size: 13px; }
+.practice-options summary { min-height: 48px; display: flex; align-items: center; gap: 8px; cursor: pointer; width: fit-content; }
+.practice-options summary span, .practice-options label span { color: var(--muted); font-size: 12px; }
+.practice-options label { max-width: 520px; margin: 6px 0 18px; }
+.practice-first { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 30px 0 16px; }
+.practice-first p { color: var(--muted); font-size: 15px; }
+.recent-sessions { padding-top: 26px; }
+.recent-sessions .section-heading { margin-bottom: 12px; }
+.recent-sessions .text-button { gap: 10px; }
+.recent-table table { table-layout: fixed; font-size: 16px; }
+.recent-table th { font-size: 11px; font-weight: 600; letter-spacing: .7px; text-transform: uppercase; color: #657a79; }
+.recent-table th, .recent-table td { padding: 6px 8px; height: 56px; min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.recent-table th:first-child, .recent-table td:first-child { padding-left: 8px; width: 17%; }
+.recent-table th:nth-child(2) { width: 24%; }
+.recent-table th:nth-child(3) { width: 17%; }
+.recent-table th:nth-child(4) { width: 15%; }
+.recent-table th:nth-child(5), .recent-table th:nth-child(6) { width: 10%; }
+.recent-table th:last-child { width: 7%; }
+.recent-name .text-button { text-align: left; justify-content: flex-start; font-weight: 600; font-size: inherit; padding: 4px 0; width: 100%; overflow-wrap: anywhere; }
+.recent-metric { font-variant-numeric: tabular-nums; }
+.recent-open .icon-button { margin-left: auto; }
+.recent-state { display: block; font-size: 12px; color: var(--muted); }
+.recent-empty { color: var(--muted); font-size: 15px; padding: 28px 0; border-top: 1px solid var(--line); }
+.roster-tabs { margin-top: 28px; padding-bottom: 0; gap: 20px; }
+.roster-tabs button { background: transparent; border: 0; border-radius: 0; border-bottom: 2px solid transparent; min-width: 80px; font-weight: 500; }
+.roster-tabs button[aria-pressed=true] { background: transparent; border-color: #76a751; font-weight: 700; }
+.filter-bar { margin-top: 28px; margin-bottom: 28px; }
+.filter-bar input, .filter-bar select { font-size: 15px; }
+.roster-grid { display: block; border-top: 1px solid var(--line); }
+.roster-grid .pitcher-card { display: grid; grid-template-columns: 52px minmax(150px, 1fr) 180px 200px 48px; grid-template-rows: auto auto; column-gap: 24px; align-items: center; padding: 22px 8px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.pitcher-card-top { display: contents; }
+.pitcher-card-top .avatar { grid-column: 1; grid-row: 1 / 3; }
+.pitcher-card-top .icon-button { grid-column: 5; grid-row: 1 / 3; }
+.pitcher-card h2 { grid-column: 2; grid-row: 1; font-size: 18px; }
+.pitcher-card > p { grid-column: 2; grid-row: 2; font-size: 13px; margin-top: 6px; }
+.pitcher-card .roster-numbers { grid-column: 3; grid-row: 1 / 3; padding: 0; }
+.pitcher-card .roster-numbers strong { font-size: 21px; font-weight: 500; }
+.pitcher-card .roster-numbers span { font-size: 12px; }
+.pitcher-card .card-actions { grid-column: 4; grid-row: 1 / 3; padding: 0; border: 0; }
+.pitcher-card .card-actions .text-button { font-size: 13px; }
+.card, .tracking-card, .empty-card { border-radius: 8px; box-shadow: none; }
+.session-list { gap: 0; border-top: 1px solid var(--line); }
+.session-row { background: transparent; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 20px 8px; }
+.session-row .date-block { background: transparent; padding: 4px; }
+.session-row-title strong { font-size: 16px; font-weight: 600; }
+.session-row-title small, .row-metric small { font-size: 12px; }
+.row-metric strong { font-size: 18px; font-weight: 500; }
+.list-heading { margin-top: 28px; }
+.list-heading .field-label { margin: 0; }
+.workspace > .pwa-notice { max-width: 1320px; margin: 20px auto 0; }
+.session-line { margin-top: 24px; font-size: 14px; }
+.session-badge { font-size: 12px; letter-spacing: 0; text-transform: none; border-radius: 5px; }
+.eyebrow, .small-label, .score-label { font-size: 11px; letter-spacing: 1px; }
+.metric-grid dt, .metric-grid.compact dt, .mini-stats span { font-size: 12px; }
+.pitch-log li strong { font-size: 14px; }
+.pitch-log li small, .pitch-log time { font-size: 12px; }
+.definition { font-size: 13px; }
+.notes textarea { font-size: 15px; }
+.notes .text-button { font-size: 13px; }
+.settings-grid, .account-card { margin-top: 28px; }
+.workspace .empty-card { background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.empty-diamond { display: none; }
+
+@media (max-width: 1100px) {
+  .app-header { padding: 0 28px; gap: 24px; }
+  .app-header .nav-item { padding: 12px; }
+  .coach-menu { padding-left: 18px; }
+  .coach-name { display: none; }
+  .workspace > main { padding: 44px 32px 48px; }
+  .start-fields { gap: 20px; }
+  .page-heading h1 { font-size: 48px; }
+  .page-heading p { font-size: 17px; }
+  .recent-table table { font-size: 14px; }
+  .workspace > .pwa-notice { margin: 16px 32px 0; }
+  .roster-grid .pitcher-card { grid-template-columns: 48px minmax(130px, 1fr) 130px 160px 48px; column-gap: 16px; }
+}
+@media (min-width: 701px) and (max-width: 800px) {
+  .app-header { gap: 12px; padding: 0 20px; }
+  .app-header .brand { font-size: 23px; }
+  .app-header nav { gap: 0; }
+  .app-header .nav-item { font-size: 14px; padding: 12px 10px; }
+  .app-header .nav-item:last-child > svg { display: none; }
+  .coach-menu { padding-left: 10px; }
+  .start-fields { grid-template-columns: 1fr 1fr; }
+  .start-button { grid-column: 1 / -1; }
+  .recent-pitcher, .recent-table th:nth-child(4) { display: none; }
+}
+@media (max-width: 700px) {
+  .app-header { min-height: 64px; padding: max(8px, env(safe-area-inset-top)) 20px 8px; justify-content: space-between; gap: 12px; }
+  .app-header .brand { display: flex; font-size: 24px; }
+  .app-header .brand-mark { height: 37px; font-size: 43px; }
+  .coach-menu { border: 0; padding: 0; }
+  .coach-initials { min-width: 38px; height: 38px; font-size: 14px; }
+  .app-header nav { position: fixed; inset: auto 0 0; z-index: 40; display: flex; min-height: 64px; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #fafaf7; gap: 0; }
+  .app-header .nav-item { width: 20%; padding: 5px 2px; min-height: 56px; font-size: 11px; flex-direction: column; gap: 4px; border: 0; color: #5c7067; }
+  .app-header .nav-item > svg { display: block; width: 21px; height: 21px; }
+  .app-header .nav-item:last-child { margin: 0; }
+  .app-header .nav-item.selected, .app-header .nav-item.selected:hover { color: #245737; background: #edf2e7; border-radius: 6px; }
+  .app-header .nav-item.selected::after { display: none; }
+  .nav-dot { display: none; }
+  .workspace { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .workspace > main { padding: 28px 20px 32px; }
+  .page-heading { display: block; padding-bottom: 20px; }
+  .page-heading h1 { font-size: 40px; letter-spacing: -1px; }
+  .page-heading p { font-size: 15px; max-width: none; margin-top: 7px; }
+  .heading-actions { justify-content: space-between; gap: 12px; margin-top: 12px; }
+  .workspace-status { font-size: 13px; max-width: 100%; white-space: normal; }
+  .workspace-status summary { justify-content: flex-start; }
+  .status-details { left: 0; right: auto; }
+  .practice-start { padding: 24px 0 12px; }
+  .practice-start h2, .recent-sessions h2 { font-size: 21px; }
+  .practice-start > p { font-size: 14px; line-height: 1.6; }
+  .start-form { margin-top: 22px; }
+  .start-fields { grid-template-columns: 1fr; gap: 18px; }
+  .start-fields label { font-size: 14px; gap: 8px; }
+  .start-fields select { height: 52px; padding: 12px; }
+  .start-button { min-height: 54px; font-size: 16px; }
+  .practice-first { align-items: stretch; flex-direction: column; gap: 16px; padding-top: 22px; }
+  .recent-sessions { padding-top: 20px; }
+  .recent-sessions .section-heading { gap: 10px; margin-bottom: 4px; }
+  .recent-sessions .section-heading .text-button { font-size: 12px; gap: 6px; }
+  .recent-sessions .section-heading .text-button svg { width: 16px; }
+  .recent-table table { table-layout: auto; font-size: 13px; }
+  .recent-table .recent-date, .recent-table .recent-team, .recent-table .recent-pitcher, .recent-table .recent-open,
+  .recent-table th:first-child, .recent-table th:nth-child(3), .recent-table th:nth-child(4), .recent-table th:last-child { display: none; }
+  .recent-table th:nth-child(2) { width: 60%; }
+  .recent-table th:nth-child(5), .recent-table th:nth-child(6) { width: 20%; }
+  .recent-table th, .recent-table td { padding: 8px 4px; font-size: 12px; height: 60px; }
+  .recent-name .text-button { font-size: 14px; }
+  .recent-table .recent-metric { font-size: 14px; }
+  .recent-state { font-size: 11px; }
+  .session-row { gap: 12px; padding: 16px 0; }
+  .session-row-title strong { font-size: 14px; }
+  .session-row-title small, .row-metric small { font-size: 11px; }
+  .session-row > svg { display: none; }
+  .row-metric { min-width: 42px; }
+  .row-metric strong { font-size: 16px; }
+  .roster-grid .pitcher-card { grid-template-columns: 48px minmax(0, 1fr) 48px; column-gap: 14px; row-gap: 4px; padding: 20px 0; }
+  .pitcher-card-top .icon-button { grid-column: 3; }
+  .pitcher-card h2 { font-size: 18px; }
+  .pitcher-card > p { margin: 0; line-height: 1.6; }
+  .pitcher-card .roster-numbers { grid-column: 2 / 4; grid-row: 3; padding-top: 14px; max-width: 220px; }
+  .pitcher-card .card-actions { grid-column: 2 / 4; grid-row: 4; margin-top: 8px; }
+  .practice-aside .metric-grid.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workspace .pitch-log ol { display: block; }
+  .session-row .date-block { width: 35px; }
+  .workspace > .pwa-notice { margin: 12px 20px 0; }
+  .settings-grid { margin-top: 20px; }
+  .is-practicing .page-heading { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; }
+  .is-practicing .page-heading h1 { font-size: 29px; }
+  .is-practicing .page-heading p { display: none; }
+  .is-practicing .heading-actions { margin: 0; gap: 4px; justify-content: flex-end; }
+  .is-practicing .workspace-status { font-size: 11px; }
+  .is-practicing .workspace-status summary { min-height: 48px; gap: 5px; }
+  .is-practicing .status-details { left: auto; right: 0; }
+  .is-practicing .session-badge { display: none; }
+  .is-practicing .session-line { margin-top: 6px; }
+  .is-practicing .session-line .text-button { font-size: 12px; }
+  .is-practicing main { padding-top: 8px; }
+  .is-practicing .tracking-card { border: 0; padding: 0; background: transparent; }
+  .is-practicing .pitcher-heading h2 { font-size: 19px; }
+  .is-practicing .pitcher-heading .eyebrow { display: none; }
+  .is-practicing .score-label { font-size: 10px; letter-spacing: .6px; }
+  .is-practicing .switch-button { font-size: 11px; }
+}

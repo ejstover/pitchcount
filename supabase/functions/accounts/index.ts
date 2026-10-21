@@ -50,12 +50,23 @@ Deno.serve(async req => {
       return {setupLink:link.toString()}
     }
     if (body.action === 'list') {
-      const [profiles,requests,memberships] = await Promise.all([
+      const [profiles,requests,memberships,pendingDeletions] = await Promise.all([
         checked(service.from('coaches').select('*').order('name')),
         checked(service.from('access_requests').select('*').order('created_at',{ascending:false})),
         checked(service.from('team_coaches').select('*')),
+        checked(service.from('account_deletions').select('id')),
       ])
-      return reply({profiles,requests,memberships})
+      return reply({profiles,requests,memberships,pendingDeletions})
+    }
+    if (['removalPreview','deleteRecord','suspendRecord','retryDeletion'].includes(body.action)) {
+      if (!['coach','request'].includes(body.kind)) throw new Error('Unsupported account removal')
+      const result = await action(body.action,{kind:body.kind,id:uuid(body.id),confirmation:body.confirmation})
+      if (result?.deleteAuthId) {
+        const {error} = await service.auth.admin.deleteUser(uuid(result.deleteAuthId))
+        if (error && error.code !== 'user_not_found' && error.status !== 404) throw new Error('Account access was removed. Authentication cleanup failed; retry Delete permanently to finish.')
+        await action('finishDeletion',{kind:'coach',id:uuid(result.deleteAuthId)})
+      }
+      return reply(result)
     }
     if (body.action === 'reject') return reply(await action('reject',{id:uuid(body.id)}))
     if (body.action === 'reset_password') return reply(await setupLink(uuid(body.id)))

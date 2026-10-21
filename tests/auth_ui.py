@@ -145,8 +145,7 @@ with sync_playwright() as p:
     page.goto(BASE)
     page.wait_for_load_state('networkidle')
     page.get_by_role('button', name='Start practice', exact=True).click()
-    page.get_by_role('dialog').get_by_role('button', name='Let’s practice').click()
-    expect(page.locator('.save-status')).to_have_text('Saved on device')
+    expect(page.locator('[data-save-state]')).to_have_attribute('data-save-state', 'saved')
     recovery_backend.profile['active'] = False
     page.evaluate("window.dispatchEvent(new Event('focus'))")
     expect(page.get_by_role('button', name='Export unsynced work')).to_be_visible()

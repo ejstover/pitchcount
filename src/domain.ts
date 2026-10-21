@@ -5,7 +5,7 @@ export const pitchLocationLabels: Record<PitchLocation, string> = {
   upIn: 'Up and in', upOut: 'Up and out', downIn: 'Down and in', downOut: 'Down and out', middle: 'Down the middle',
 }
 export type Outcome = 'walk' | 'strikeout' | 'inPlay' | 'manual' | 'reset' | 'switch' | 'end'
-export interface Team { id: string; name: string; createdAt: string; updatedAt: string }
+export interface Team { id: string; name: string; archived?: boolean; createdAt: string; updatedAt: string }
 export interface Coach { id: string; name: string; email: string; role: 'admin' | 'coach' | 'viewer'; active: boolean }
 export interface TeamPitcher { teamId: string; pitcherId: string; active: boolean }
 export interface TeamCoach { teamId: string; coachId: string }
@@ -21,6 +21,8 @@ export interface Session {
   pitcherIds: string[]; nextSequence: number
   teamId: string | null; recorderId: string; deviceId: string; revision: number
   recovered?: boolean
+  /** Server-owned metadata; scoring uploads cannot change this. */
+  archived?: boolean
 }
 export interface SessionEvent {
   id: string; sessionId: string; pitcherId: string; appearanceId: string
