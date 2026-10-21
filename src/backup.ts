@@ -1,14 +1,17 @@
 import { pitchLocations, project, type Pitcher, type Session, type SessionEvent, type Team, type TeamPitcher } from './domain'
+import { gcSeasonKey, validateGCSummary, type GCMapping, type GCSummary } from './gamechanger'
 
 export interface Backup {
   format: 'pitchwork-backup'
-  version: 3
+  version: 4
   exportedAt: string
   teams: Team[]
   teamPitchers: TeamPitcher[]
   pitchers: Pitcher[]
   sessions: Session[]
   events: SessionEvent[]
+  gcSummaries: GCSummary[]
+  gcMappings: GCMapping[]
 }
 type Row = Record<string, unknown>
 function fail(message: string): never { throw new Error(`Invalid backup: ${message}`) }
@@ -52,7 +55,7 @@ export function validateBackup(value: unknown): Backup {
     root = { ...root, version: 2, teamPitchers: legacyPitchers.filter(p => p.teamId !== null).map(p => ({ teamId: p.teamId, pitcherId: p.id, active: true })), pitchers: legacyPitchers.map(p => ({ ...p, ownerId: 'legacy' })), sessions: rows(root.sessions, 'sessions', row => ({ ...row, teamId: null, recorderId: 'legacy', deviceId: 'legacy', revision: 0 })) }
   }
   const legacy = root.version === 2
-  if (root.format !== 'pitchwork-backup' || ![2,3].includes(root.version as number)) fail('unsupported format or version. Choose a Pitchwork JSON backup.')
+  if (root.format !== 'pitchwork-backup' || ![2,3,4].includes(root.version as number)) fail('unsupported format or version. Choose a Pitchwork JSON backup.')
   const archived = (row: Row) => { if (legacy) return false; if (typeof row.archived !== 'boolean') fail('archived must be true or false.'); return row.archived }
   const teams = rows(root.teams, 'teams', row => ({ archived: archived(row), id: text(row.id, 'team id', true), name: text(row.name, 'team name', true), createdAt: timestamp(row.createdAt, 'team creation time'), updatedAt: timestamp(row.updatedAt, 'team update time') }))
   const pitchers = rows<Pitcher>(root.pitchers, 'pitchers', row => {
@@ -80,6 +83,13 @@ export function validateBackup(value: unknown): Backup {
   })
   const teamIds = unique(teams.map(t => t.id), 'teams')
   const pitcherIds = unique(pitchers.map(p => p.id), 'pitchers')
+  const gcSummaries = root.version === 4 ? rows(root.gcSummaries, 'GameChanger summaries', validateGCSummary) : []
+  const gcMappings = root.version === 4 ? rows<GCMapping>(root.gcMappings, 'GameChanger mappings', row => ({ teamId: text(row.teamId, 'mapping team', true), season: text(row.season, 'mapping season', true), sourceKey: text(row.sourceKey, 'mapping source', true), pitcherId: text(row.pitcherId, 'mapping pitcher', true) })) : []
+  unique(gcSummaries.map(s => s.id), 'GameChanger summaries')
+  unique(gcSummaries.map(s => `${s.teamId}/${gcSeasonKey(s.season)}`), 'GameChanger team seasons')
+  unique(gcMappings.map(m => `${m.teamId}/${gcSeasonKey(m.season)}/${m.sourceKey}`), 'GameChanger mappings')
+  for (const s of gcSummaries) if (!teamIds.has(s.teamId) || s.players.some(p => !pitcherIds.has(p.pitcherId))) fail('GameChanger summary references a missing team or pitcher.')
+  for (const m of gcMappings) if (!teamIds.has(m.teamId) || !pitcherIds.has(m.pitcherId)) fail('GameChanger mapping references a missing team or pitcher.')
   const sessionIds = unique(sessions.map(s => s.id), 'sessions')
   unique(events.map(e => e.id), 'events')
   unique([...sessions.map(s => s.initialAppearanceId), ...events.map(e => e.nextAppearanceId)], 'appearance identifiers')
@@ -112,7 +122,7 @@ export function validateBackup(value: unknown): Backup {
     })
     if (projection.current.pitcherId !== session.selectedPitcherId) fail('selected pitcher disagrees with the session history.')
   }
-  return { format: 'pitchwork-backup', version: 3, exportedAt: timestamp(root.exportedAt, 'export time'), teams, teamPitchers, pitchers, sessions, events }
+  return { format: 'pitchwork-backup', version: 4, exportedAt: timestamp(root.exportedAt, 'export time'), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings }
 }
 
 export function parseBackup(json: string): Backup {
@@ -121,7 +131,7 @@ export function parseBackup(json: string): Backup {
   return validateBackup(value)
 }
 export function backupTotals(backup: Backup) {
-  return { pitchers: backup.pitchers.length, sessions: backup.sessions.length, pitches: backup.events.filter(e => e.kind === 'pitch' && !e.voidedAt).length }
+  return { pitchers: backup.pitchers.length, sessions: backup.sessions.length, pitches: backup.events.filter(e => e.kind === 'pitch' && !e.voidedAt).length, gcSummaries: backup.gcSummaries.length }
 }
 export function downloadBackup(backup: Backup): void {
   const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }))

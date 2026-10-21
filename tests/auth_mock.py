@@ -155,6 +155,15 @@ class Backend:
                 for membership in backup['teamPitchers']:
                     membership.update(teamId=teams[membership['teamId']], pitcherId=mapping[membership['pitcherId']])
                     self.data['teamPitchers'].append(membership)
+                for summary in backup.get('gcSummaries', []):
+                    summary.update(id=str(uuid.uuid4()), teamId=teams[summary['teamId']], revision=1,
+                                   importedBy=COACH_ID, importedByName=self.profile['name'])
+                    for player in summary['players']:
+                        player['pitcherId'] = mapping[player['pitcherId']]
+                    self.data.setdefault('gcSummaries', []).append(summary)
+                for alias in backup.get('gcMappings', []):
+                    alias.update(teamId=teams[alias['teamId']], pitcherId=mapping[alias['pitcherId']])
+                    self.data.setdefault('gcMappings', []).append(alias)
                 for session in backup['sessions']:
                     old = session['id']; session['id'] = str(uuid.uuid4()); session['recovered'] = True
                     session.update(teamId=teams.get(session['teamId']), recorderId=COACH_ID, deviceId=item['deviceId'], revision=1)

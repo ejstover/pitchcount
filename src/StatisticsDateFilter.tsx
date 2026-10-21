@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { datePresets, dateRangeLabel, validCustomRange, type DateRange, type DateSelection } from './statistics'
 import './statistics.css'
 
@@ -8,6 +8,11 @@ export function StatisticsDateFilter({ value, range, onChange }: { value: DateSe
   const [end, setEnd] = useState(value.preset === 'custom' ? value.end : '')
   const [error, setError] = useState('')
   const errorId = useId()
+  const selectedStart = value.preset === 'custom' ? value.start : ''
+  const selectedEnd = value.preset === 'custom' ? value.end : ''
+  useEffect(() => {
+    setEditing(value.preset === 'custom'); setStart(selectedStart); setEnd(selectedEnd); setError('')
+  }, [value.preset, selectedStart, selectedEnd])
   return <div className="statistics-dates">
     <div className="statistics-date-controls"><label>Date range<select aria-label="Date range" value={editing ? 'custom' : value.preset} onChange={event => {
       const preset = event.target.value as DateSelection['preset']

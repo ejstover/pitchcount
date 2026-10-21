@@ -25,7 +25,7 @@ describe('JSON backup and restore', () => {
     await repo.act(sessionId, 'undo')
     const before = await repo.snapshot()
     const backup = parseBackup(JSON.stringify(await repo.exportBackup()))
-    expect(backup.version).toBe(3)
+    expect(backup.version).toBe(4)
     expect(backup.events.filter(e => e.pitchLocation).sort((a, b) => a.sequence - b.sequence).map(e => e.pitchLocation)).toEqual(pitchLocations)
     expect(backup.events.find(e => e.pitchType === 'swinging')?.pitchLocation).toBeUndefined()
     await repo.restoreBackup(backup)
@@ -140,7 +140,7 @@ describe('archive backup compatibility', () => {
     const team = (await db.teams.toArray())[0]
     await db.teams.update(team.id,{archived:true});await db.sessions.update(sessionId,{archived:true})
     const backup=await repo.exportBackup()
-    expect(backup.version).toBe(3);expect(backup.teams[0].archived).toBe(true);expect(backup.sessions[0].archived).toBe(true)
+    expect(backup.version).toBe(4);expect(backup.teams[0].archived).toBe(true);expect(backup.sessions[0].archived).toBe(true)
     await repo.restoreBackup(backup)
     expect((await repo.snapshot()).sessions[0].archived).toBe(true)
     const legacy=validateBackup({...backup,version:2})
