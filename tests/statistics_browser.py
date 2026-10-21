@@ -62,6 +62,8 @@ with sync_playwright() as playwright:
         expect(page.locator('.heatmap-coverage')).to_have_text(f'Locations recorded for {located} of {pitches} pitches.')
 
     nav('Statistics')
+    expect(page.get_by_label('Statistics source', exact=True)).to_have_value('combined')
+    page.get_by_label('Statistics source', exact=True).select_option('practice')
     total(15)
     coverage(12, 15)
     expect(page.get_by_label('Date range', exact=True)).to_have_value('all')
@@ -102,12 +104,12 @@ with sync_playwright() as playwright:
     page.get_by_label('End date', exact=True).fill('2026-10-18')
     page.get_by_role('button', name='Apply', exact=True).click()
     expect(page.get_by_role('alert')).to_be_visible()
-    expect(page.locator('.statistics-date-summary')).to_contain_text('Sep')
+    expect(page.locator('.stats-overview .small-label')).to_contain_text('Sep')
     page.get_by_label('Start date', exact=True).fill('2026-10-18')
     page.get_by_role('button', name='Apply', exact=True).click()
     total(5)
     coverage(4, 5)
-    expect(page.locator('.statistics-date-summary')).to_contain_text('Oct 18, 2026')
+    expect(page.locator('.stats-overview .small-label')).to_contain_text('Oct 18, 2026')
     page.get_by_label('Statistics pitcher').select_option(p1)
     total(4)
     page.get_by_label('Statistics team').select_option(team2)
@@ -134,7 +136,7 @@ with sync_playwright() as playwright:
         page.get_by_label('Date range', exact=True).select_option('custom')
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), ('custom', width)
         if width == 390:
-            page.locator('.statistics-dates').screenshot(path=str(ARTIFACTS / 'statistics-custom-390.png'))
+            page.locator('.statistics-filters').screenshot(path=str(ARTIFACTS / 'statistics-custom-390.png'))
         page.get_by_label('Date range', exact=True).select_option('all')
 
     page.locator('.session-row', has_text='current-week').click()
@@ -178,6 +180,8 @@ with sync_playwright() as playwright:
     saved()
     nav('Statistics')
     expect(page.get_by_label('Date range', exact=True)).to_have_value('all')
+    expect(page.get_by_label('Statistics source', exact=True)).to_have_value('combined')
+    page.get_by_label('Statistics source', exact=True).select_option('practice')
     expect(page.get_by_label('Statistics scope')).to_have_value('all')
     total(16)
     assert not errors, errors

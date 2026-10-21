@@ -1,4 +1,24 @@
 import { pitchLocations, type Appearance, type PitchLocation, type PitchType, type Session, type SessionEvent } from './domain'
+import type { Snapshot } from './shared'
+import type { GCSummary } from './gamechanger'
+
+/** Keep historical pitchers available even after they leave the active roster. */
+export function statisticsPitchers(data: Pick<Snapshot, 'pitchers' | 'teamPitchers' | 'sessions' | 'gcSummaries'>, teamId: string) {
+  const ids = new Set(data.teamPitchers.filter(m => m.teamId === teamId).map(m => m.pitcherId))
+  for (const session of data.sessions) if (session.teamId === teamId) for (const id of session.pitcherIds) ids.add(id)
+  for (const summary of data.gcSummaries ?? []) if (summary.teamId === teamId) for (const player of summary.players) ids.add(player.pitcherId)
+  return data.pitchers.filter(p => !teamId || ids.has(p.id)).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** Season labels are import metadata. Coverage and team decide what can be added safely. */
+export function selectGameChangerSummaries(summaries: GCSummary[], filters: { teamId: string; pitcherId: string; range: DateRange | null }) {
+  const scoped = summaries.filter(s => (!filters.teamId || s.teamId === filters.teamId) && (!filters.pitcherId || s.players.some(p => p.pitcherId === filters.pitcherId)))
+  const covered = scoped.filter(s => !filters.range || filters.range.start <= s.coverageStart && filters.range.end >= s.coverageEnd)
+  const conflicts = covered.filter(s => covered.some(other => other.id !== s.id && other.teamId === s.teamId && other.coverageStart <= s.coverageEnd && other.coverageEnd >= s.coverageStart))
+  const conflictedIds = new Set(conflicts.map(s => s.id))
+  const partial = scoped.filter(s => filters.range && !covered.includes(s) && filters.range.start <= s.coverageEnd && filters.range.end >= s.coverageStart)
+  return { included: covered.filter(s => !conflictedIds.has(s.id)), conflicts, partial }
+}
 
 export const locationOutcomes = { all: 'All pitches', ball: 'Balls', strikes: 'Strikes', foul: 'Fouls', inPlay: 'In play' } as const
 export type LocationOutcome = keyof typeof locationOutcomes

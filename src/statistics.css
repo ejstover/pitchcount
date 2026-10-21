@@ -1,4 +1,21 @@
 .statistics-dates { margin: -8px 0 24px; }
+.statistics-filters { margin-bottom: 24px; padding: 20px 24px; }
+.statistics-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: end; }
+.statistics-filter-grid .field-label { margin: 0; }
+.statistics-filter-grid select { width: 100%; min-width: 0; min-height: 48px; margin: 8px 0 0; }
+.statistics-filter-grid .compact-dates, .statistics-filter-grid .statistics-date-controls { display: contents; }
+.statistics-team { order: 1; }.statistics-pitcher { order: 2; }
+.statistics-filter-grid .statistics-date-controls > label { order: 3; display: block; }
+.statistics-source { order: 4; }
+.statistics-filter-grid .custom-date-range { order: 5; grid-column: 1 / -1; padding-top: 4px; }
+.statistics-filter-grid .date-range-error { order: 6; grid-column: 1 / -1; margin: 0; }
+.statistics-scope { margin: -8px 0 20px; }
+.statistics-scope select { margin-left: 10px; }
+.statistics-account-imports { margin: 0 0 24px; }
+.statistics-account-imports > summary { cursor: pointer; padding: 20px 24px; font-weight: 700; }
+.statistics-account-imports > .gc-import { border: 0; margin: 0; box-shadow: none; }
+@media(max-width: 900px) { .statistics-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media(max-width: 359px) { .statistics-filter-grid { grid-template-columns: minmax(0, 1fr); } }
 .recording-perspective { margin-top: 12px; color: var(--muted); font-size: 10px; line-height: 1.5; text-align: center; }
 .statistics-date-controls, .custom-date-range { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
 .statistics-date-controls label, .heatmap-outcome { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }

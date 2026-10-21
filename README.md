@@ -79,11 +79,13 @@ Run `python tests/statistics_browser.py` against the mocked Supabase Vite enviro
 
 ## GameChanger season summaries
 
-In Settings, choose **Import GameChanger CSV**. Export standard stats from GC with all intended games included, then choose the destination team, confirm the season name and coverage dates, and match each participating pitcher. Name and jersey suggestions require confirmation; confirmed matches are remembered. You can create a pitcher or skip a row explicitly. Review totals and warnings before importing.
+Open account settings using your coach profile button (or Settings), expand **GameChanger imports**, and choose a CSV. Export standard stats from GC with all intended games included, then choose the destination team, confirm the season name and coverage dates, and match each participating pitcher. Name and jersey suggestions require confirmation; confirmed matches are remembered. You can create a pitcher or skip a row explicitly. Review totals and warnings before importing. Import controls and saved-summary management live in account settings.
 
 Each team/season has one current summary. An unchanged export is detected even when renamed or reordered. **Replace summary** replaces the entire summary, including removal of omitted players; decreased totals are allowed for GC scoring corrections. Coverage labels are supplied by the coach because the CSV does not identify its games or date range. Imports require an online approved coach assigned to the team (or an admin). Saved summaries can be read offline and removed in Settings.
 
-Statistics defaults to **Practice**. Choose **GameChanger** or **Combined**, then select a team and season. Selecting a season sets the practice date range to its coverage. A narrower filter excludes GC rather than prorating its totals. Combined counts use selected pitcher rows; GC's reported team Totals remain a separate reference and discrepancies are surfaced. Games pitched are never summed into unique team games.
+Statistics defaults to **All teams**, **All pitchers**, **All time**, and **Combined**. Its shared controls are ordered Team, Pitcher, Date range, Source; the same selections apply to Combined, Practice, and Games. Choosing a team narrows the pitcher list to its current roster and historical practice/import references, including archived pitchers. An incompatible pitcher selection resets to All pitchers. Source and team changes never change the date filter.
+
+There is no season selector in Statistics. All imported summaries fully covered by the selected dates contribute automatically. Summaries with overlapping coverage for the same team and selected pitcher population are excluded, with a notice directing coaches to correct coverage or remove duplicates in account settings. Non-conflicting games and practice results remain available. A partial date range excludes GC rather than prorating its totals; **Show all time** explicitly clears that date restriction. Without eligible game data, Combined still shows practice results. Combined counts use selected pitcher rows; GC's reported team Totals remain in **Data coverage & calculation notes**. Game-only metrics and raw values are under **Game details**. Games pitched are never summed into unique team games.
 
 Combined strike and first-pitch strike rates are **estimates**, weighted by GC pitches and batters faced respectively. Missing rates display as unavailable. Practice/game scoring definitions can differ. Innings, ERA, WHIP, and other game-only values stay in the GC detail view. Summaries create no synthetic pitches, appearances, or locations; heat maps and pitch-outcome breakdowns continue to use practice events. Season totals cannot reconstruct individual games, partial-period trends, or daily workload.
 
@@ -99,6 +101,8 @@ npm run build
 ```
 
 The incremental `202610210002_gamechanger.sql` migration adds permission-checked, atomic imports with revision conflict detection and operation receipts. `202610210003_gamechanger_workspace.sql` ensures roster and summary reads remain consistent during concurrent imports. The frontend stays local until committed/published through the usual deployment workflow. Unit and PostgreSQL coverage runs through `npm test`. Browser acceptance is `python tests/gamechanger_browser.py` using the test-only Vite settings documented above (set `PITCHWORK_BASE_URL` to the server URL).
+
+Run `python tests/statistics_filters_browser.py` in the same test environment to verify defaults, dependent pitcher choices, automatic summary selection, overlap handling, account import placement, and responsive filter layouts. The filter simplification requires no database migration.
 
 ## Storage and architecture
 
