@@ -44,8 +44,11 @@ export class Repository {
   private queue: Promise<unknown> = Promise.resolve()
   private listeners = new Set<(dirty: boolean) => void>()
   private syncing: Promise<void> | null = null
+  private syncStartedAt: number | null = null
+  private syncCompletedAt: number | null = null
   private retired = false
   syncMessage = ''
+  get syncState() { return { running: this.syncing !== null, startedAt: this.syncStartedAt, completedAt: this.syncCompletedAt } }
   constructor(public db: PitchDatabase, public identity: Identity = { coachId: 'local', deviceId: 'local' }, private gateway?: Gateway) {}
   subscribe(listener: (dirty: boolean) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private emit(dirty = false) { this.listeners.forEach(listener => listener(dirty)) }
@@ -302,12 +305,34 @@ export class Repository {
   sync(): Promise<void> {
     if (this.retired) return Promise.resolve()
     if (this.syncing) return this.syncing
-    this.syncing = this.performSync().finally(() => { this.syncing = null })
+    if (!this.gateway || !navigator.onLine) { this.emit(); return Promise.resolve() }
+    this.syncMessage = ''
+    this.syncStartedAt = Date.now()
+    // Assign the shared promise before notifying subscribers or starting requests.
+    this.syncing = Promise.resolve().then(() => this.performSync()).finally(() => {
+      this.syncing = null
+      this.syncStartedAt = null
+      this.syncCompletedAt = Date.now()
+      this.emit()
+    })
+    this.emit()
     return this.syncing
   }
+  private async upload(operation: Upload) {
+    try {
+      await this.gateway!.upload(operation)
+    } catch (error) {
+      // This rejection happens before the server commits or creates a receipt.
+      // Never rewrite an uncertain upload (for example, a lost acknowledgement).
+      if (!(error instanceof CloudError) || error.code !== 'P0001' || error.message !== 'Recorded events cannot change') throw error
+      const events = [...operation.events].sort((a, b) => a.sequence - b.sequence)
+      if (events.every((event, index) => event === operation.events[index])) throw error
+      const repaired = { ...operation, events }
+      await this.db.uploads.put(repaired)
+      await this.gateway!.upload(repaired)
+    }
+  }
   private async performSync() {
-    if (!this.gateway || !navigator.onLine) { this.emit(); return }
-    this.syncMessage = ''
     try {
       const blocked = new Set((await this.db.uploads.toArray()).filter(o => o.blocked).map(o => o.sessionId))
       while (!this.retired) {
@@ -318,7 +343,7 @@ export class Repository {
         })
         if (!op) break
         try {
-          await this.gateway.upload(op)
+          await this.upload(op)
           await this.db.uploads.delete(op.id)
         } catch (error) {
           if (error instanceof CloudError && ['42501', '40001'].includes(error.code)) {
@@ -332,6 +357,6 @@ export class Repository {
       if (blocked.size) this.syncMessage = 'Some practices need attention. Export unsynced work in Settings.'
     } catch (error) {
       this.syncMessage = error instanceof Error ? error.message : 'Could not sync. Your saved pitches remain on this device.'
-    } finally { this.emit() }
+    }
   }
 }

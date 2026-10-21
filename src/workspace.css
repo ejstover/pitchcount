@@ -48,6 +48,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .status-details dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; }
 .status-details dt { color: var(--muted); font-size: 13px; }
 .status-details dd { text-align: right; font-size: 13px; margin: 0; }
+.sync-feedback { font-size: 13px; line-height: 1.6; margin: 12px 0 0; overflow-wrap: anywhere; }
+.sync-error { color: #702c20; background: #fbe4dd; border-color: #dca99a; }
+.sync-feedback.sync-error { padding: 10px; border-radius: 5px; }
 .status-details button { margin-top: 16px; border-top: 1px solid var(--line); border-radius: 0; width: 100%; justify-content: space-between; }
 .primary { background: #173e32; border-color: #173e32; }
 .primary:hover:not(:disabled) { background: #275642; }
