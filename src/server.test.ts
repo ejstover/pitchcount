@@ -1,8 +1,8 @@
 import { PGlite } from '@electric-sql/pglite'
 import { readFileSync } from 'node:fs'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PitchDatabase, Repository } from './storage'
-import type { Upload } from './shared'
+import { CloudError, type Gateway, type Upload } from './shared'
 
 const a = '10000000-0000-4000-8000-000000000001', b = '10000000-0000-4000-8000-000000000002'
 const admin = '10000000-0000-4000-8000-000000000003', device = '20000000-0000-4000-8000-000000000001'
@@ -99,6 +99,48 @@ describe('server team access and practice transactions', () => {
     const iid = await invite(tid); await login(b); await rpc('manage', 'acceptInvitation', { id: iid })
     const otherCoach = structuredClone(ops[1]); otherCoach.session.recorderId = b
     await expect(rpc('upload_practice', otherCoach)).rejects.toThrow('another recorder')
+  })
+  it('repairs a legacy ordering rejection against real SQL without accepting changed events', async () => {
+    vi.stubGlobal('navigator', { onLine: true })
+    const tid = await team(), pid = await pitcher([tid])
+    const db = new PitchDatabase(`sql-sync-repair-${crypto.randomUUID()}`)
+    const attempts: Upload[] = []
+    const gateway: Gateway = {
+      workspace: () => rpc<any>('get_workspace'),
+      manage: (action, input) => rpc('manage', action, input),
+      upload: async operation => {
+        attempts.push(structuredClone(operation))
+        try {
+          return (await sql.query<{ revision: number }>('select public.upload_practice($1::jsonb) revision', [JSON.stringify(operation)])).rows[0].revision
+        } catch (error) { throw new CloudError((error as Error).message, (error as { code: string }).code) }
+      },
+    }
+    const repo = new Repository(db, { coachId: a, deviceId: device }, gateway)
+    try {
+      await repo.sync()
+      const sid = await repo.startSession(pid, 'Legacy upload', tid)
+      await repo.act(sid, 'pitch', 'ball', 'upIn'); await repo.sync()
+      await repo.act(sid, 'pitch', 'ball', 'middle')
+      const [legacy] = await repo.pendingUploads()
+      legacy.events.reverse(); await db.uploads.put(legacy)
+      await repo.sync()
+      expect(attempts).toHaveLength(3)
+      expect(attempts[1].events.map(e => e.sequence)).toEqual([2, 1])
+      expect(attempts[2]).toEqual({ ...attempts[1], events: [...attempts[1].events].reverse() })
+      expect(repo.syncMessage).toBe('')
+      expect(await repo.hasPending()).toBe(false)
+      expect(await gateway.upload(attempts[2])).toBe(legacy.session.revision)
+      expect((await rpc<any>('get_workspace')).events).toHaveLength(2)
+      await repo.act(sid, 'pitch', 'ball', 'middle')
+      const [changed] = await repo.pendingUploads()
+      changed.events[0].pitchType = 'called'; await db.uploads.put(changed)
+      const before = attempts.length
+      await repo.sync()
+      expect(attempts).toHaveLength(before + 1)
+      expect(repo.syncMessage).toBe('Recorded events cannot change')
+      expect((await repo.exportRecovery()).operations[0].events).toHaveLength(3)
+      expect((await rpc<any>('get_workspace')).events).toHaveLength(2)
+    } finally { await db.delete(); vi.unstubAllGlobals() }
   })
   it('keeps historical names and team attribution after roster removal and revokes access immediately', async () => {
     const tid = await team(), pid = await pitcher([tid]), ops = await operations(pid, tid)

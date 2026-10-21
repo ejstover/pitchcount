@@ -50,6 +50,8 @@ function useWorkspace(repository: Repository) {
   const [pending, setPending] = useState(0)
   const [syncStatus, setSyncStatus] = useState('Checking sync…')
   const [syncError, setSyncError] = useState('')
+  const [syncActivity, setSyncActivity] = useState(repository.syncState)
+  const [syncSlow, setSyncSlow] = useState(false)
   const [error, setError] = useState('')
   const jobs = useRef<Job[]>([])
   const running = useRef(false)
@@ -88,13 +90,17 @@ function useWorkspace(repository: Repository) {
   useEffect(() => {
     let alive = true
     let timer: ReturnType<typeof setTimeout> | undefined
+    let refreshVersion = 0
     const refresh = async (dirty = false) => {
-      const [next, uploads] = await Promise.all([repository.snapshot(), repository.pendingUploads()])
-      if (!alive) return
-      setData(next)
-      setSyncStatus(uploads.some(o => o.blocked) ? 'Sync needs attention' : uploads.length ? 'Waiting to sync' : 'Synced')
+      const version = ++refreshVersion
+      setSyncActivity(repository.syncState)
       setSyncError(repository.syncMessage)
       if (dirty) { clearTimeout(timer); timer = setTimeout(() => void repository.sync(), 300) }
+      const [next, uploads] = await Promise.all([repository.snapshot(), repository.pendingUploads()])
+      if (!alive || version !== refreshVersion) return
+      setData(next)
+      setSyncStatus(repository.syncMessage || uploads.some(o => o.blocked) ? 'Sync needs attention' : uploads.length ? 'Waiting to sync' : 'Synced')
+      setSyncError(repository.syncMessage)
     }
     const sync = () => { if (navigator.onLine) void repository.sync() }
     const unsubscribe = repository.subscribe(dirty => { void refresh(dirty) })
@@ -102,11 +108,17 @@ function useWorkspace(repository: Repository) {
     void refresh(); sync()
     return () => { alive = false; clearTimeout(timer); unsubscribe(); window.removeEventListener('online', sync); window.removeEventListener('focus', sync) }
   }, [repository])
+  useEffect(() => {
+    setSyncSlow(false)
+    if (syncActivity.startedAt === null) return
+    const timer = setTimeout(() => setSyncSlow(true), Math.max(0, syncActivity.startedAt + 15000 - Date.now()))
+    return () => clearTimeout(timer)
+  }, [syncActivity.startedAt])
   function discard() {
     jobs.current = []; setPending(0); setError('')
     run(async () => undefined)
   }
-  return { data, ready, pending, error, syncStatus, syncError, run, retry: () => void drain(), discard }
+  return { data, ready, pending, error, syncStatus, syncError, syncActivity, syncSlow, run, retry: () => void drain(), discard }
 }
 
 function FailureBanner({ failure }: { failure: SaveFailure }) {
@@ -148,7 +160,7 @@ function PitchTile({ type, label, disabled, record }: { type: PitchType; label: 
 }
 
 export function App({ repository, coach, onSignOut }: { repository: Repository; coach: Coach; onSignOut: () => Promise<void> }) {
-  const { data, ready, pending, error, syncStatus, syncError, run, retry, discard } = useWorkspace(repository)
+  const { data, ready, pending, error, syncStatus, syncError, syncActivity, syncSlow, run, retry, discard } = useWorkspace(repository)
   const canEdit = coach.active && coach.role !== 'viewer'
   const [page, setPage] = useState<Page>(sessionStorage.getItem('pitchwork-invitation') ? 'Teams' : 'Practice')
   const [pitcherForm, setPitcherForm] = useState<Pitcher | 'new' | null>(null)
@@ -188,7 +200,7 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
     if (statPitcher && !data.pitchers.some(p => p.id === statPitcher)) setStatPitcher('')
     setNoteDrafts(drafts => Object.fromEntries(Object.entries(drafts).filter(([id]) => data.sessions.some(s => s.id === id))))
   }, [data])
-  const removalLocked = pending > 0 || dirtyNotes || !!error || syncStatus !== 'Synced' || !pwa.online
+  const removalLocked = pending > 0 || dirtyNotes || !!error || syncActivity.running || syncStatus !== 'Synced' || !pwa.online
   const openPractice = (id: string) => { setDetailsId(id); setPage('Sessions') }
   const pitcher = data.pitchers.find(p => p.id === session?.selectedPitcherId)
   const activePitchers = data.pitchers.filter(p => !p.archived && (!session?.teamId || teamHasPitcher(data, session.teamId, p.id))).sort((a, b) => a.name.localeCompare(b.name))
@@ -211,7 +223,9 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
   const visibleSessions = data.sessions.filter(s => sessionFilter === 'all' || !!s.archived === (sessionFilter === 'archived'))
   const selectedSession = data.sessions.find(s => s.id === detailsId)
   const filteredAppearances = data.appearances.filter(a => (!statPitcher || a.pitcherId === statPitcher) && (!statTeam || data.sessions.find(s => s.id === a.sessionId)?.teamId === statTeam) && (scope === 'all' || a.sessionId === session?.id))
-  const saveLabel = error ? 'Save needs attention' : pending ? 'Saving…' : !ready ? 'Opening local data…' : dirtyNotes ? 'Unsaved notes' : syncError || syncStatus === 'Sync needs attention' ? 'Sync needs attention' : !pwa.online ? (syncStatus === 'Synced' ? 'Offline · Saved on device' : 'Offline · Waiting to sync') : syncStatus === 'Synced' ? 'All changes synced' : syncStatus === 'Waiting to sync' ? 'Saved · Waiting to sync' : syncStatus
+  const saveLabel = error ? 'Save needs attention' : pending ? 'Saving…' : !ready ? 'Opening local data…' : dirtyNotes ? 'Unsaved notes' : syncActivity.running ? 'Syncing…' : syncError || syncStatus === 'Sync needs attention' ? 'Sync needs attention' : !pwa.online ? (syncStatus === 'Synced' ? 'Offline · Saved on device' : 'Offline · Waiting to sync') : syncStatus === 'Synced' ? 'All changes synced' : syncStatus === 'Waiting to sync' ? 'Saved · Waiting to sync' : syncStatus
+  const syncFailure = syncError ? `Couldn’t sync: ${syncError}${/[.!?]$/.test(syncError) ? '' : '.'} Your saved work remains on this device.` : ''
+  const syncFeedback = syncActivity.running ? (syncSlow ? 'Taking longer than expected… Your saved work remains on this device.' : 'Syncing…') : syncFailure || (!pwa.online ? 'Offline. Changes will sync when you reconnect.' : syncStatus === 'Sync needs attention' ? 'Some practices need attention. Export unsynced work in Settings.' : syncActivity.completedAt !== null ? (syncStatus === 'Synced' ? 'All changes synced' : 'Changes still waiting to sync') : '')
 
   return <div className={`app-shell ${page === 'Practice' && session ? 'is-practicing' : ''}`}>
     <header className="app-header">
@@ -221,15 +235,15 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
     </header>
     <div className="workspace">
       {failure && !modalOpen && <FailureBanner failure={failure} />}
-      {syncError && <div className="pwa-notice" role="alert">{syncError}</div>}
+      {syncFailure && <div className="pwa-notice sync-error" role="alert">{syncFailure}</div>}
       {pwa.error && <div className="pwa-notice">{pwa.error}</div>}
       {pwa.updateReady && <div className="pwa-notice update-notice"><div><strong>An app update is ready.</strong><p>{updateAllowed ? 'Your records will be kept when the app reloads.' : 'Pause practice, finish saving, and close any open forms before updating.'}</p></div><button disabled={!updateAllowed} onClick={() => void pwa.update()}>Update app</button></div>}
       {!ready ? <main><div className="empty-card"><h1>Opening your dugout…</h1><p>Loading the roster and practice history saved on this device.</p></div></main> : <main>
         <div className="page-heading"><div><h1>{page === 'Practice' ? 'Practice' : page === 'Teams' ? 'Teams' : page === 'Pitchers' ? 'Roster' : page === 'Statistics' ? 'Statistics' : page === 'Settings' ? 'Settings' : 'Practice history'}</h1><p>{page === 'Practice' ? 'Track pitches for a focused practice.' : page === 'Teams' ? 'Manage pitchers and coaches by team.' : page === 'Pitchers' ? 'Your pitchers and their practice history.' : page === 'Statistics' ? 'Review performance across your practices.' : page === 'Settings' ? 'Manage your account, backups, and offline access.' : 'Review past practices and pitcher progress.'}</p></div>
           <div className="heading-actions">
-            <details key={page} className={`workspace-status ${error || syncError || syncStatus === 'Sync needs attention' ? 'needs-attention' : pending || dirtyNotes || syncStatus !== 'Synced' || !pwa.online ? 'waiting' : ''}`}>
+            <details key={page} className={`workspace-status ${error || syncError || (!syncActivity.running && syncStatus === 'Sync needs attention') ? 'needs-attention' : syncActivity.running || pending || dirtyNotes || syncStatus !== 'Synced' || !pwa.online ? 'waiting' : ''}`}>
               <summary aria-label={`${saveLabel}. Save and sync details`}><span className="status-dot" aria-hidden="true" /><span role="status" data-save-state={error ? 'error' : pending ? 'saving' : !ready ? 'opening' : 'saved'}>{saveLabel}</span><Icon name="arrow" size={16} /></summary>
-              <div className="status-details" aria-label="Connection and offline availability"><dl><div><dt>Device</dt><dd>{error ? 'Save needs attention' : pending ? 'Saving…' : 'Saved on device'}</dd></div><div><dt>Team sync</dt><dd>{syncStatus}</dd></div><div><dt>Connection</dt><dd>{pwa.online ? 'Online' : 'Offline'}</dd></div><div><dt>Offline access</dt><dd>{pwa.offlineReady ? 'Ready offline' : !pwa.production ? 'Available after publishing' : !pwa.supported ? 'Needs HTTPS' : 'Preparing…'}</dd></div></dl><button className="text-button" onClick={() => void repository.sync()} disabled={!pwa.online || pending > 0}>Refresh & sync<Icon name="arrow" size={16} /></button></div>
+              <div className="status-details" aria-label="Connection and offline availability"><dl><div><dt>Device</dt><dd>{error ? 'Save needs attention' : pending ? 'Saving…' : 'Saved on device'}</dd></div><div><dt>Team sync</dt><dd>{syncActivity.running ? 'Syncing…' : syncStatus}</dd></div><div><dt>Connection</dt><dd>{pwa.online ? 'Online' : 'Offline'}</dd></div><div><dt>Offline access</dt><dd>{pwa.offlineReady ? 'Ready offline' : !pwa.production ? 'Available after publishing' : !pwa.supported ? 'Needs HTTPS' : 'Preparing…'}</dd></div></dl><button className="text-button" onClick={() => void repository.sync()} disabled={!pwa.online || pending > 0 || syncActivity.running} aria-busy={syncActivity.running}>{syncActivity.running ? 'Syncing…' : 'Refresh & sync'}<Icon name="arrow" size={16} /></button><p className={`sync-feedback ${syncError || syncStatus === 'Sync needs attention' ? 'sync-error' : ''}`} role="status" aria-live="polite">{syncFeedback}</p></div>
             </details>
             {page === 'Pitchers' && <button className="primary" onClick={() => setPitcherForm('new')} disabled={!!error || !canEdit}><Icon name="plus" />Add pitcher</button>}
             {page === 'Practice' && session && <div className={`session-badge ${session.status}`}>{session.status === 'paused' ? 'Paused' : 'Live practice'}</div>}
