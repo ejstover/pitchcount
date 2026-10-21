@@ -1,0 +1,59 @@
+.statistics-dates { margin: -8px 0 24px; }
+.recording-perspective { margin-top: 12px; color: var(--muted); font-size: 10px; line-height: 1.5; text-align: center; }
+.statistics-date-controls, .custom-date-range { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.statistics-date-controls label, .heatmap-outcome { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.statistics-date-controls select, .statistics-date-controls input, .heatmap-outcome select { min-height: 48px; min-width: 0; margin: 0; }
+.statistics-date-controls input { width: 175px; }
+.statistics-date-summary { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.date-range-error { color: #8c3022; margin-top: 10px; font-size: 13px; }
+.pitch-heatmap { margin: 24px 0; }
+.heatmap-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+.heatmap-heading h3 { font-size: 21px; letter-spacing: -.6px; }
+.heatmap-heading p { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.heatmap-outcome { width: 160px; flex-shrink: 0; }
+.heatmap-content { display: grid; grid-template-columns: minmax(240px, 360px) minmax(0, 1fr); gap: 36px; margin-top: 24px; align-items: center; }
+.heatmap-sides, .heatmap-ticks { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 1px; color: var(--muted); }
+.heatmap-sides { margin: 0 8px 8px; }
+.heatmap-regions { display: grid; grid-template-columns: repeat(2, 1fr); position: relative; aspect-ratio: 1; gap: 2px; border: 2px solid #6e7e6a; background: white; border-radius: 8px; overflow: hidden; }
+.heatmap-region { display: flex; align-items: start; padding: 14px; }
+.heatmap-upOut, .heatmap-downOut { justify-content: end; text-align: right; }
+.heatmap-downIn, .heatmap-downOut { align-items: end; }
+.heatmap-region-data { display: flex; flex-direction: column; align-items: center; gap: 2px; background: #ffffffeb; color: #18332c; border-radius: 5px; padding: 5px 8px; min-width: 78px; }
+.heatmap-region-name { font-size: 11px; font-weight: 700; }
+.heatmap-region strong { font-size: 25px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.heatmap-region-data > span:last-child { font-size: 12px; }
+.heatmap-middle { position: absolute; width: 30%; height: 30%; top: 35%; left: 35%; border: 2px solid #6e7e6a; border-radius: 50%; justify-content: center; align-items: center; padding: 0; }
+.heatmap-middle .heatmap-region-data { min-width: 0; border-radius: 40%; padding: 3px 7px; }
+.heatmap-middle strong { font-size: 22px; }
+.heatmap-empty .heatmap-region { background: #f1f1ec !important; }
+.heatmap-legend { margin-top: 15px; font-size: 11px; color: var(--muted); }
+.heatmap-ramp { height: 9px; border-radius: 3px; margin: 8px 0 6px; background: linear-gradient(to right, rgb(243,242,223), rgb(31,80,57)); }
+.heatmap-ticks { letter-spacing: 0; }
+.heatmap-insights { display: grid; gap: 18px; }
+.heatmap-insights p, .heatmap-insights details { font-size: 12px; line-height: 1.8; color: var(--muted); }
+.heatmap-insights .heatmap-coverage { font-size: 14px; color: #18332c; }
+.heatmap-frequent { padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.heatmap-frequent > span { display: block; font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.heatmap-frequent > strong { font-size: 20px; line-height: 1.4; }
+.heatmap-insights summary { min-height: 48px; display: list-item; padding-top: 12px; cursor: pointer; }
+.heatmap-embedded { padding-top: 24px; border-top: 1px solid var(--line); margin-bottom: 0; }
+@media (max-width: 700px) {
+  .pitch-heatmap.card { padding: 18px; }
+  .heatmap-heading { flex-wrap: wrap; gap: 14px; }
+  .heatmap-outcome { width: 100%; }
+  .heatmap-content { grid-template-columns: minmax(0, 1fr); gap: 24px; margin-top: 18px; }
+  .heatmap-visual { width: 100%; max-width: 360px; margin: auto; }
+  .heatmap-region { padding: 8px; }
+  .heatmap-middle { padding: 0; }
+  .heatmap-region-data { min-width: 70px; padding: 5px; }
+  .heatmap-region-name { font-size: 10px; }
+  .heatmap-middle strong { font-size: 19px; }
+  .statistics-date-controls > label, .custom-date-range { width: 100%; }
+  .custom-date-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .custom-date-range label { flex: 1 1 125px; min-width: 0; }
+  .custom-date-range button { grid-column: 1 / -1; }
+  .statistics-date-controls input { width: 100%; }
+}
+@media (max-width: 380px) {
+  .custom-date-range { grid-template-columns: minmax(0, 1fr); }
+}

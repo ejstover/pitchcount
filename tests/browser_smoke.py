@@ -171,7 +171,7 @@ def exercise(browser, label):
     saved()
     expect(page.get_by_role('alert')).to_have_count(0)
     count(0, 1)
-    expect(page.locator('.pitch-log li').first).to_contain_text('Up and in')
+    expect(page.locator('.pitch-log li').first).to_contain_text('Upper left')
     context.set_offline(True)
     pitch('ball')
     count(1, 1)

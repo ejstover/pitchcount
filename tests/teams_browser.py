@@ -114,7 +114,7 @@ with sync_playwright() as p:
     page.get_by_label('Practice name').fill('Owls bullpen')
     page.get_by_role('button', name='Start practice', exact=True).click()
     saved()
-    page.get_by_role('button', name='Ball, up and in', exact=True).click()
+    page.get_by_role('button', name='Ball, upper left', exact=True).click()
     saved()
     page.get_by_role('button', name='End session', exact=True).click()
     page.get_by_role('dialog').get_by_role('button', name='End session', exact=True).click()
