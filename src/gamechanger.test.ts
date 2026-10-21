@@ -4,12 +4,50 @@ import { gcComparison, gcCovered, gcFingerprint, parseGameChanger, readCSV, sugg
 import { PitchDatabase, Repository } from './storage'
 import { validateBackup } from './backup'
 import type { Appearance, Pitcher } from './domain'
+import { selectGameChangerSummaries, statisticsPitchers } from './statistics'
 
 const csv = readFileSync('tests/fixtures/gamechanger.csv', 'utf8')
 const parsed = () => parseGameChanger(csv)
 const players = (): GCPlayer[] => parsed().players.map((p, i) => ({ ...p, pitcherId: `pitcher-${i}` }))
 const summary = (): GCSummary => ({ id: 'summary', teamId: 'team', season: 'Fall 2026', coverageStart: '2026-09-01', coverageEnd: '2026-10-20', players: players(), teamTotals: parsed().teamTotals, warnings: parsed().warnings, fileName: 'stats.csv', revision: 1, importedBy: 'coach', importedByName: 'Coach', updatedAt: '2026-10-21T12:00:00Z', fingerprint: '' })
 const encode = (rows: string[][]) => rows.map(row => row.map(v => `"${v.replaceAll('"', '""')}"`).join(',')).join('\n')
+
+describe('automatic game-summary selection', () => {
+  const filters = { teamId: '', pitcherId: '', range: null }
+  const september = () => ({ ...summary(), coverageEnd: '2026-09-30' })
+  const october = () => ({ ...summary(), id: 'october', season: 'October', coverageStart: '2026-10-01' })
+  it('combines all non-overlapping seasons and teams without a season selection', () => {
+    const other = { ...september(), id: 'other', teamId: 'other-team' }
+    const selected = selectGameChangerSummaries([september(), october(), other], filters)
+    expect(selected.included.map(s => s.id)).toEqual(['summary', 'october', 'other'])
+    expect(gcComparison([], selected.included.flatMap(s => s.players)).game.total).toBe(535 * 3)
+    expect(selectGameChangerSummaries(selected.included, { ...filters, teamId: 'team' }).included).toHaveLength(2)
+  })
+  it('excludes every conflicting summary for the same team, including shared boundary dates', () => {
+    const overlap = { ...october(), coverageStart: '2026-09-30' }
+    const other = { ...september(), id: 'other', teamId: 'other-team' }
+    const selected = selectGameChangerSummaries([september(), overlap, other], filters)
+    expect(selected.included).toEqual([other])
+    expect(selected.conflicts.map(s => s.id)).toEqual(['summary', 'october'])
+  })
+  it('uses full date coverage, reports partial matches, and leaves unrelated periods out quietly', () => {
+    const selected = selectGameChangerSummaries([september(), october()], { ...filters, range: { start: '2026-10-10', end: '2026-10-20' } })
+    expect(selected.included).toEqual([])
+    expect(selected.partial.map(s => s.id)).toEqual(['october'])
+    expect(selectGameChangerSummaries([september(), october()], { ...filters, range: { start: '2026-10-01', end: '2026-10-20' } }).included.map(s => s.id)).toEqual(['october'])
+  })
+  it('only considers summaries containing the selected pitcher when checking overlap', () => {
+    const other = { ...september(), id: 'other', players: [{ ...players()[0], pitcherId: 'different' }] }
+    expect(selectGameChangerSummaries([september(), other], { ...filters, pitcherId: 'pitcher-0' }).included.map(s => s.id)).toEqual(['summary'])
+  })
+  it('filters pitchers by team roster and history, including archived and import-only pitchers', () => {
+    const pitchers = ['active', 'inactive', 'history', 'import', 'unrelated'].map(id => ({ id, name: id, archived: id === 'inactive' } as Pitcher))
+    const data = { pitchers, teamPitchers: [{ teamId: 'team', pitcherId: 'active', active: true }, { teamId: 'team', pitcherId: 'inactive', active: false }], sessions: [{ teamId: 'team', pitcherIds: ['history'] }] as import('./domain').Session[], gcSummaries: [{ ...summary(), players: [{ ...players()[0], pitcherId: 'import' }] }] }
+    expect(statisticsPitchers(data, 'team').map(p => p.id)).toEqual(['active', 'history', 'import', 'inactive'])
+    expect(statisticsPitchers(data, '')).toHaveLength(5)
+    expect(statisticsPitchers(data, 'unknown')).toEqual([])
+  })
+})
 
 describe('GameChanger CSV', () => {
   it('reads pitching fields by section and preserves source values and team totals', () => {

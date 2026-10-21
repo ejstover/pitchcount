@@ -125,6 +125,7 @@ with sync_playwright() as p:
     page.get_by_role('dialog').get_by_role('button', name='Save changes', exact=True).click()
     saved()
     nav('Statistics')
+    page.get_by_label('Statistics source', exact=True).select_option('practice')
     page.get_by_label('Statistics team').select_option(label='Owls')
     expect(page.locator('.stats-overview .metric-grid div').filter(has=page.get_by_text('Total pitches', exact=True)).locator('dd')).to_have_text('1')
     teams()

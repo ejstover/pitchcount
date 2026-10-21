@@ -80,6 +80,7 @@ with sync_playwright() as pw:
         page.get_by_role('navigation').get_by_role('button', name=name, exact=True).click()
 
     nav('Settings')
+    page.get_by_text('GameChanger imports', exact=True).click()
     page.get_by_label('GameChanger CSV', exact=True).set_input_files(ROOT / 'tests/fixtures/gamechanger.csv')
     page.get_by_label('Season name', exact=True).fill('Fall 2026')
     page.get_by_label('Season coverage start', exact=True).fill('2026-09-01')
@@ -131,19 +132,23 @@ with sync_playwright() as pw:
     assert len(commits) == 2 and backend.data['gcSummaries'][0]['revision'] == 2
 
     nav('Statistics')
-    expect(page.locator('.stats-overview .metric-grid dd').first).to_have_text('3')
+    expect(page.get_by_label('Statistics source', exact=True)).to_have_value('combined')
+    expect(page.get_by_label('Date range', exact=True)).to_have_value('all')
+    expect(page.get_by_label('GC season', exact=True)).to_have_count(0)
+    expect(page.get_by_role('button', name='Import GameChanger CSV', exact=True)).to_have_count(0)
+    page.get_by_label('Statistics team', exact=True).select_option(TEAM_ID)
+    expect(page.get_by_label('Date range', exact=True)).to_have_value('all')
     expect(page.locator('.heatmap-coverage')).to_contain_text('3 of 3')
-    page.get_by_label('Statistics source', exact=True).select_option('combined')
-    page.get_by_label('Comparison team', exact=True).select_option(TEAM_ID)
-    page.get_by_label('GC season', exact=True).select_option(backend.data['gcSummaries'][0]['id'])
     table = page.locator('.gc-statistics .gc-table')
     expect(table.locator('tbody tr').first).to_contain_text('529')
     expect(table.locator('tbody tr').first).to_contain_text('532')
     expect(table.get_by_text('Estimated', exact=True)).to_have_count(2)
+    page.get_by_label('Date range', exact=True).select_option('custom')
     page.get_by_label('Start date', exact=True).fill('2026-10-01')
+    page.get_by_label('End date', exact=True).fill('2026-10-20')
     page.get_by_role('button', name='Apply', exact=True).click()
-    expect(page.get_by_role('status').filter(has_text='GC is excluded')).to_be_visible()
-    page.get_by_role('button', name='Use GC coverage dates', exact=True).click()
+    expect(page.get_by_role('status').filter(has_text='excluded because the dates')).to_be_visible()
+    page.get_by_role('button', name='Show all time', exact=True).click()
     expect(table.locator('tbody tr').first).to_contain_text('532')
 
     artifacts = ROOT / '.test-artifacts'; artifacts.mkdir(exist_ok=True)
@@ -167,6 +172,7 @@ with sync_playwright() as pw:
     imported_page.get_by_label('Restore from a JSON backup').set_input_files(backup_path)
     imported_page.get_by_label('I understand this imports separate copies into my account.').check()
     imported_page.get_by_role('button', name='Import backup copies', exact=True).click()
+    imported_page.get_by_text('GameChanger imports', exact=True).click()
     expect(imported_page.locator('.gc-saved')).to_contain_text('Fall 2026')
     restored = imported_backend.data['gcSummaries'][0]
     assert restored['teamId'] != TEAM_ID and restored['players'][0]['pitcherId'] != backend.data['gcSummaries'][0]['players'][0]['pitcherId']
@@ -177,6 +183,7 @@ with sync_playwright() as pw:
     if os.environ.get('PITCHWORK_GC_PWA'):
         page.reload(); page.wait_for_load_state('domcontentloaded')
     nav('Settings')
+    page.get_by_text('GameChanger imports', exact=True).click()
     expect(page.locator('.gc-saved')).to_contain_text('Fall 2026')
     expect(page.get_by_label('GameChanger CSV', exact=True)).to_be_disabled()
     context.set_offline(False)

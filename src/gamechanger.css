@@ -22,6 +22,13 @@
 .gc-statistics > .card { margin-bottom: 20px; }
 .gc-statistics details { margin-top: 20px; }
 .gc-statistics summary { cursor: pointer; }
+.gc-game-details { margin-bottom: 24px; }
+.gc-game-details > summary { font-weight: 700; min-height: 24px; }
+.gc-game-details > div { margin-top: 24px; }
+.gc-player-detail { padding: 20px 0; border-bottom: 1px solid var(--line); }
+.gc-data-details { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.gc-data-details h3 { font-size: 14px; margin-top: 18px; }
+.gc-statistics .settings-notice ul { padding-left: 20px; margin-top: 8px; }
 .gc-statistics .filter-bar { align-items: end; flex-wrap: wrap; }
 @media(max-width: 600px) {
  .gc-fields, .gc-match { grid-template-columns: minmax(0, 1fr); }
