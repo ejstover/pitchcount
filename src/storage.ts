@@ -3,7 +3,7 @@ import { createId as id } from './id'
 import { validateBackup, type Backup } from './backup'
 import { pitchLocations, project, type Appearance, type Pitcher, type PitchLocation, type PitchType, type Session, type SessionEvent, type Team, type Coach, type TeamCoach, type TeamPitcher, type Invitation } from './domain'
 
-import { CloudError, type Gateway, type Identity, type SavePitcher, type Snapshot, type Upload } from './shared'
+import { CloudError, type Gateway, type Identity, type SavePitcher, type Snapshot, type Upload, type RemovalInput, type RemovalPreview, type RemovalKind } from './shared'
 export type { Snapshot } from './shared'
 
 export class PitchDatabase extends Dexie {
@@ -17,6 +17,7 @@ export class PitchDatabase extends Dexie {
   teamPitchers!: Table<TeamPitcher, [string, string]>
   invitations!: Table<Invitation, string>
   uploads!: Table<Upload, string>
+  deletions!: Table<{kind: RemovalKind; id: string}, [string,string]>
   constructor(name = 'pitchwork') {
     super(name)
     this.version(1).stores({
@@ -30,6 +31,10 @@ export class PitchDatabase extends Dexie {
       teamCoaches: '[teamId+coachId], teamId, coachId',
       teamPitchers: '[teamId+pitcherId], teamId, pitcherId', invitations: 'id, teamId',
       uploads: 'id, sessionId, [sessionId+expectedRevision]',
+    })
+    this.version(3).stores({ deletions: '[kind+id]' }).upgrade(async tx => {
+      await tx.table('teams').toCollection().modify(t => { t.archived ??= false })
+      await tx.table('sessions').toCollection().modify(s => { s.archived ??= false })
     })
   }
 }
@@ -45,8 +50,9 @@ export class Repository {
   subscribe(listener: (dirty: boolean) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private emit(dirty = false) { this.listeners.forEach(listener => listener(dirty)) }
   owns(session: Session) { return !session.recovered && session.recorderId === this.identity.coachId && session.deviceId === this.identity.deviceId }
-  private writable(session: Session) { if (!this.owns(session)) throw new Error('This practice is read-only on this device.') }
+  private writable(session: Session) { if (session.archived) throw new Error('Reactivate the practice before editing it.'); if (!this.owns(session)) throw new Error('This practice is read-only on this device.') }
   private async eligible(pitcherId: string, teamId: string | null) {
+    if (teamId && (await this.db.teams.get(teamId))?.archived) throw new Error('Choose an active team.')
     const pitcher = await this.db.pitchers.get(pitcherId)
     const member = teamId ? await this.db.teamPitchers.get([teamId, pitcherId]) : null
     if (!pitcher || pitcher.archived || (teamId && !member?.active)) throw new Error('Choose an active pitcher on this team.')
@@ -63,7 +69,7 @@ export class Repository {
     }
     session.revision++
     await this.db.sessions.put(session)
-    await this.db.uploads.add({ id: id(), sessionId: session.id, expectedRevision, session: { ...session }, events: await this.db.events.where('sessionId').equals(session.id).toArray() })
+    await this.db.uploads.add({ id: id(), sessionId: session.id, expectedRevision, session: { ...session }, events: (await this.db.events.where('sessionId').equals(session.id).toArray()).sort((a,b) => a.sequence - b.sequence) })
     Dexie.currentTransaction?.on('complete', () => this.emit(true))
   }
   private serial<T>(work: () => Promise<T>): Promise<T> {
@@ -73,15 +79,15 @@ export class Repository {
   }
   async snapshot(): Promise<Snapshot> {
     return this.db.transaction('r', this.db.tables, async () => ({
-      teams: await this.db.teams.toArray(), pitchers: await this.db.pitchers.toArray(),
+      teams: (await this.db.teams.toArray()).map(t => ({...t, archived: t.archived ?? false})), pitchers: await this.db.pitchers.toArray(),
       coaches: await this.db.coaches.toArray(), teamCoaches: await this.db.teamCoaches.toArray(), teamPitchers: await this.db.teamPitchers.toArray(), invitations: await this.db.invitations.toArray(),
-      sessions: await this.db.sessions.toArray(), appearances: await this.db.appearances.toArray(), events: await this.db.events.toArray(),
+      sessions: (await this.db.sessions.toArray()).map(s => ({...s, archived: s.archived ?? false})), appearances: await this.db.appearances.toArray(), events: await this.db.events.toArray(),
     }))
   }
   exportBackup(): Promise<Backup> {
     return this.serial(async () => {
       const { teams, pitchers, sessions, events, teamPitchers } = await this.snapshot()
-      return validateBackup({ format: 'pitchwork-backup', version: 2, exportedAt: now(), teams, teamPitchers, pitchers, sessions, events })
+      return validateBackup({ format: 'pitchwork-backup', version: 3, exportedAt: now(), teams, teamPitchers, pitchers, sessions, events })
     })
   }
   restoreBackup(value: unknown, operationId = id()): Promise<void> {
@@ -113,6 +119,17 @@ export class Repository {
     await this.gateway.manage(action, input)
     await this.refresh()
   }
+  async previewRemoval(input: RemovalInput): Promise<RemovalPreview> {
+    if (!this.gateway || !navigator.onLine) throw new Error('Reconnect to remove records.')
+    return await this.gateway.manage('removalPreview', { ...input }) as RemovalPreview
+  }
+  removeRecord(input: RemovalInput, permanent: boolean): Promise<void> {
+    return this.serial(async () => {
+      await this.sync()
+      if (await this.hasPending()) throw new Error('Sync or recover pending practices before removing records.')
+      await this.manage(permanent ? 'deleteRecord' : 'archiveRecord', { ...input })
+    })
+  }
   saveTeam(input: { id?: string; name: string }): Promise<string> {
     return this.serial(async () => {
       const name = input.name.trim()
@@ -121,7 +138,7 @@ export class Repository {
       if (this.gateway) { await this.manage('saveTeam', { ...input, id: teamId, name }); return teamId }
       await this.db.transaction('rw', this.db.teams, this.db.teamCoaches, async () => {
         const old = await this.db.teams.get(teamId)
-        await this.db.teams.put({ id: teamId, name, createdAt: old?.createdAt ?? now(), updatedAt: now() })
+        await this.db.teams.put({ id: teamId, name, archived: old?.archived ?? false, createdAt: old?.createdAt ?? now(), updatedAt: now() })
         await this.db.teamCoaches.put({ teamId, coachId: this.identity.coachId })
       })
       return teamId
@@ -163,7 +180,7 @@ export class Repository {
       await this.eligible(pitcherId, teamId)
       const timestamp = now()
       const session: Session = { teamId, recorderId: this.identity.coachId, deviceId: this.identity.deviceId, revision: 0, id: id(), name: name.trim(), notes: '', startedAt: timestamp, updatedAt: timestamp, endedAt: null,
-        status: 'active', initialPitcherId: pitcherId, initialAppearanceId: id(), selectedPitcherId: pitcherId, pitcherIds: [pitcherId], nextSequence: 1 }
+        archived: false, status: 'active', initialPitcherId: pitcherId, initialAppearanceId: id(), selectedPitcherId: pitcherId, pitcherIds: [pitcherId], nextSequence: 1 }
       await this.queueUpload(session)
       await this.db.appearances.bulkPut(project(session, []).appearances)
       return session.id
@@ -262,15 +279,19 @@ export class Repository {
       const pendingIds = new Set(pending.filter(p => !p.blocked).map(p => p.sessionId))
       const teams = new Set(remote.teams.map(t => t.id))
       const blockedIds = new Set(pending.filter(p => p.blocked).map(p => p.sessionId))
+      const removed = remote.deletions ?? []
+      await this.db.deletions.bulkPut(removed)
+      const deleted = new Set((await this.db.deletions.toArray()).filter(d => d.kind === 'session').map(d => d.id))
+      for (const op of pending) if (deleted.has(op.sessionId)) await this.db.uploads.update(op.id, {blocked: 'This practice was permanently deleted. Export unsynced work for recovery.'})
       const remoteVersions = new Map(remote.sessions.map(s => [s.id, s.revision]))
-      const local = await this.db.sessions.filter(s => !blockedIds.has(s.id) && (pendingIds.has(s.id) || (this.owns(s) && s.revision > (remoteVersions.get(s.id) ?? 0))) && (s.teamId === null || teams.has(s.teamId))).toArray()
+      const local = await this.db.sessions.filter(s => !deleted.has(s.id) && !blockedIds.has(s.id) && (pendingIds.has(s.id) || (this.owns(s) && s.revision > (remoteVersions.get(s.id) ?? 0))) && (s.teamId === null || teams.has(s.teamId))).toArray()
       const localIds = new Set(local.map(s => s.id))
       const events = await this.db.events.filter(e => localIds.has(e.sessionId)).toArray()
-      const sessions = [...remote.sessions.filter(s => !localIds.has(s.id) && !blockedIds.has(s.id)), ...local]
+      const sessions = [...remote.sessions.filter(s => !deleted.has(s.id) && !localIds.has(s.id) && !blockedIds.has(s.id)), ...local].map(s => ({...s, archived: remote.sessions.find(r => r.id === s.id)?.archived ?? s.archived ?? false}))
       const sessionIds = new Set(sessions.map(s => s.id))
       const source = [...remote.events.filter(e => !localIds.has(e.sessionId)), ...events].filter(e => sessionIds.has(e.sessionId))
-      for (const table of this.db.tables) if (table.name !== 'uploads') await table.clear()
-      await this.db.teams.bulkPut(remote.teams); await this.db.pitchers.bulkPut(remote.pitchers)
+      for (const table of this.db.tables) if (table.name !== 'uploads' && table.name !== 'deletions') await table.clear()
+      await this.db.teams.bulkPut(remote.teams.map(t => ({...t, archived: t.archived ?? false}))); await this.db.pitchers.bulkPut(remote.pitchers)
       await this.db.coaches.bulkPut(remote.coaches); await this.db.teamCoaches.bulkPut(remote.teamCoaches)
       await this.db.teamPitchers.bulkPut(remote.teamPitchers); await this.db.invitations.bulkPut(remote.invitations)
       await this.db.sessions.bulkPut(sessions); await this.db.events.bulkPut(source)

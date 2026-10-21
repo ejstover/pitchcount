@@ -2,7 +2,7 @@ import { pitchLocations, project, type Pitcher, type Session, type SessionEvent,
 
 export interface Backup {
   format: 'pitchwork-backup'
-  version: 2
+  version: 3
   exportedAt: string
   teams: Team[]
   teamPitchers: TeamPitcher[]
@@ -51,8 +51,10 @@ export function validateBackup(value: unknown): Backup {
     const legacyPitchers = rows(root.pitchers, 'pitchers', row => row)
     root = { ...root, version: 2, teamPitchers: legacyPitchers.filter(p => p.teamId !== null).map(p => ({ teamId: p.teamId, pitcherId: p.id, active: true })), pitchers: legacyPitchers.map(p => ({ ...p, ownerId: 'legacy' })), sessions: rows(root.sessions, 'sessions', row => ({ ...row, teamId: null, recorderId: 'legacy', deviceId: 'legacy', revision: 0 })) }
   }
-  if (root.format !== 'pitchwork-backup' || root.version !== 2) fail('unsupported format or version. Choose a Pitchwork version 2 JSON backup.')
-  const teams = rows(root.teams, 'teams', row => ({ id: text(row.id, 'team id', true), name: text(row.name, 'team name', true), createdAt: timestamp(row.createdAt, 'team creation time'), updatedAt: timestamp(row.updatedAt, 'team update time') }))
+  const legacy = root.version === 2
+  if (root.format !== 'pitchwork-backup' || ![2,3].includes(root.version as number)) fail('unsupported format or version. Choose a Pitchwork JSON backup.')
+  const archived = (row: Row) => { if (legacy) return false; if (typeof row.archived !== 'boolean') fail('archived must be true or false.'); return row.archived }
+  const teams = rows(root.teams, 'teams', row => ({ archived: archived(row), id: text(row.id, 'team id', true), name: text(row.name, 'team name', true), createdAt: timestamp(row.createdAt, 'team creation time'), updatedAt: timestamp(row.updatedAt, 'team update time') }))
   const pitchers = rows<Pitcher>(root.pitchers, 'pitchers', row => {
     if (typeof row.archived !== 'boolean') fail('pitcher archived must be true or false.')
     return { id: text(row.id, 'pitcher id', true), name: text(row.name, 'pitcher name', true), jersey: text(row.jersey, 'jersey'), ownerId: text(row.ownerId, 'pitcher owner', true), archived: row.archived, createdAt: timestamp(row.createdAt, 'pitcher creation time'), updatedAt: timestamp(row.updatedAt, 'pitcher update time') }
@@ -65,7 +67,7 @@ export function validateBackup(value: unknown): Backup {
     if (!Array.isArray(row.pitcherIds)) fail('session pitchers must be a list.')
     if (typeof row.revision !== 'number' || !Number.isSafeInteger(row.revision) || row.revision < 0) fail('invalid session revision.')
     if (row.recovered !== undefined && typeof row.recovered !== 'boolean') fail('invalid recovery flag.')
-    return { teamId: row.teamId === null ? null : text(row.teamId, 'practice team', true), recorderId: text(row.recorderId, 'recording coach', true), deviceId: text(row.deviceId, 'recording device', true), revision: row.revision, ...(row.recovered ? { recovered: true } : {}), id: text(row.id, 'session id', true), name: text(row.name, 'practice name'), notes: text(row.notes, 'notes'), startedAt: timestamp(row.startedAt, 'session start'), updatedAt: timestamp(row.updatedAt, 'session update'), endedAt: nullableTime(row.endedAt, 'session end'), status: choice(row.status, ['active', 'paused', 'ended'], 'session status'), initialPitcherId: text(row.initialPitcherId, 'initial pitcher', true), initialAppearanceId: text(row.initialAppearanceId, 'initial appearance', true), selectedPitcherId: text(row.selectedPitcherId, 'selected pitcher', true), pitcherIds: row.pitcherIds.map(id => text(id, 'participating pitcher', true)), nextSequence: positiveInteger(row.nextSequence, 'next event sequence') }
+    return { archived: archived(row), teamId: row.teamId === null ? null : text(row.teamId, 'practice team', true), recorderId: text(row.recorderId, 'recording coach', true), deviceId: text(row.deviceId, 'recording device', true), revision: row.revision, ...(row.recovered ? { recovered: true } : {}), id: text(row.id, 'session id', true), name: text(row.name, 'practice name'), notes: text(row.notes, 'notes'), startedAt: timestamp(row.startedAt, 'session start'), updatedAt: timestamp(row.updatedAt, 'session update'), endedAt: nullableTime(row.endedAt, 'session end'), status: choice(row.status, ['active', 'paused', 'ended'], 'session status'), initialPitcherId: text(row.initialPitcherId, 'initial pitcher', true), initialAppearanceId: text(row.initialAppearanceId, 'initial appearance', true), selectedPitcherId: text(row.selectedPitcherId, 'selected pitcher', true), pitcherIds: row.pitcherIds.map(id => text(id, 'participating pitcher', true)), nextSequence: positiveInteger(row.nextSequence, 'next event sequence') }
   })
   const events = rows<SessionEvent>(root.events, 'events', row => {
     const kind = choice(row.kind, ['pitch', 'next', 'reset', 'switch', 'end'], 'event kind')
@@ -92,6 +94,7 @@ export function validateBackup(value: unknown): Backup {
     group.push(event); bySession.set(event.sessionId, group)
   }
   for (const session of sessions) {
+    if (session.archived && session.status !== 'ended') fail('only ended practices can be archived.')
     const participants = unique(session.pitcherIds, 'session pitchers')
     if (![session.initialPitcherId, session.selectedPitcherId].every(id => participants.has(id)) || !session.pitcherIds.every(id => pitcherIds.has(id))) fail('a session references a missing or nonparticipating pitcher.')
     const source = (bySession.get(session.id) ?? []).sort((a, b) => a.sequence - b.sequence)
@@ -109,7 +112,7 @@ export function validateBackup(value: unknown): Backup {
     })
     if (projection.current.pitcherId !== session.selectedPitcherId) fail('selected pitcher disagrees with the session history.')
   }
-  return { format: 'pitchwork-backup', version: 2, exportedAt: timestamp(root.exportedAt, 'export time'), teams, teamPitchers, pitchers, sessions, events }
+  return { format: 'pitchwork-backup', version: 3, exportedAt: timestamp(root.exportedAt, 'export time'), teams, teamPitchers, pitchers, sessions, events }
 }
 
 export function parseBackup(json: string): Backup {

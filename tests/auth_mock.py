@@ -45,6 +45,7 @@ class Backend:
         self.operations = {}
         self.requests = []
         self.fail_upload = False
+        self.fail_remove = False
         self.setup_used = False
         self.password_updates = 0
 
@@ -96,6 +97,8 @@ class Backend:
                         request['status'] = 'approved'
                 if action == 'create':
                     result = {'setupLink': 'http://localhost:5187/#password-setup=valid-setup-token'}
+            elif action in ('removalPreview', 'archiveRecord', 'deleteRecord', 'suspendRecord'):
+                result, status = self.removal(action, payload)
             elif action == 'reset_password':
                 result = {'setupLink': 'http://localhost:5187/#password-setup=valid-setup-token'}
             elif action == 'reject':
@@ -124,7 +127,9 @@ class Backend:
         elif '/rest/v1/rpc/manage' in req.url:
             action, item = payload['action'], payload['input']
             stamp = '2026-10-19T12:00:00.000Z'
-            if action == 'saveTeam':
+            if action in ('removalPreview', 'archiveRecord', 'deleteRecord'):
+                result, status = self.removal(action, item)
+            elif action == 'saveTeam':
                 self.data['teams'] = [t for t in self.data['teams'] if t['id'] != item['id']] + [{'id': item['id'], 'name': item['name'], 'createdAt': stamp, 'updatedAt': stamp}]
                 if not any(m['teamId'] == item['id'] and m['coachId'] == COACH_ID for m in self.data['teamCoaches']):
                     self.data['teamCoaches'].append({'teamId': item['id'], 'coachId': COACH_ID})
@@ -164,3 +169,56 @@ class Backend:
         else:
             status, result = 404, {'message': 'Unmocked endpoint: ' + req.url}
         route.fulfill(status=status, headers=headers, body=json.dumps(result))
+
+
+    def removal(self, action, item):
+        kind, record_id = item['kind'], item['id']
+        collection = {'team': self.data['teams'], 'pitcher': self.data['pitchers'], 'session': self.data['sessions'], 'coach': self.data['coaches'], 'request': self.requests}[kind]
+        record = next((r for r in collection if r['id'] == record_id), None)
+        if not record:
+            return ({}, 200) if action == 'deleteRecord' else ({'message': 'Record is unavailable', 'error': 'Record is unavailable'}, 400)
+        name = record.get('email') if kind in ('coach', 'request') else record.get('name') or 'Bullpen practice'
+        practices = [s for s in self.data['sessions'] if (kind == 'team' and s['teamId'] == record_id) or (kind == 'pitcher' and record_id in s['pitcherIds']) or (kind == 'coach' and s['recorderId'] == record_id)]
+        assignments = [m for m in self.data['teamPitchers'] if (kind == 'team' and m['teamId'] == record_id) or (kind == 'pitcher' and m['pitcherId'] == record_id)]
+        coaches = [m for m in self.data['teamCoaches'] if (kind == 'team' and m['teamId'] == record_id) or (kind == 'coach' and m['coachId'] == record_id)]
+        invites = [i for i in self.data['invitations'] if (kind == 'team' and i['teamId'] == record_id) or (kind == 'coach' and i['email'] == name)]
+        archive_blockers = []
+        delete_blockers = ['Delete all related practices individually before permanently deleting this record.'] if practices else []
+        if kind == 'pitcher' and any(m['active'] for m in assignments):
+            archive_blockers.append('Remove this pitcher from active team rosters first.')
+        if any(s['status'] != 'ended' for s in practices) or (kind == 'session' and record['status'] != 'ended'):
+            archive_blockers.append('End related ongoing practices first.')
+            delete_blockers.append('End related ongoing practices first.')
+        allowed = self.profile['role'] != 'viewer'
+        preview = {'name': name, 'canRemove': allowed, 'archiveBlockers': archive_blockers, 'deleteBlockers': delete_blockers,
+                   'practices': [{'id': s['id'], 'name': s['name']} for s in practices], 'hiddenPractices': 0,
+                   'assignments': len(assignments) + len(coaches), 'invitations': len(invites), 'ownedPitchers': 0}
+        if action == 'removalPreview':
+            return preview, 200
+        message = None
+        if self.fail_remove:
+            message = 'Simulated removal failure. Retry.'
+        elif not allowed:
+            message = 'Removal access denied'
+        elif action == 'deleteRecord' and item.get('confirmation') != name:
+            message = 'Type the displayed name to confirm deletion'
+        elif action == 'deleteRecord' and delete_blockers:
+            message = delete_blockers[0]
+        elif action != 'deleteRecord' and item.get('archived') and archive_blockers:
+            message = archive_blockers[0]
+        if message:
+            return {'message': message, 'error': message, 'code': '40001'}, 400
+        if action == 'deleteRecord':
+            collection.remove(record)
+            self.data.setdefault('deletions', []).append({'kind': kind, 'id': record_id})
+            if kind == 'session':
+                self.data['events'] = [e for e in self.data['events'] if e['sessionId'] != record_id]
+            self.data['teamPitchers'] = [m for m in self.data['teamPitchers'] if m not in assignments]
+            self.data['teamCoaches'] = [m for m in self.data['teamCoaches'] if m not in coaches]
+        elif action == 'suspendRecord':
+            record['active'] = False
+        else:
+            record['archived'] = item['archived']
+        if kind == 'team' and (action == 'deleteRecord' or item.get('archived')):
+            self.data['invitations'] = [i for i in self.data['invitations'] if i not in invites]
+        return {}, 200

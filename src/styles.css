@@ -157,3 +157,13 @@ main { max-width: 1460px; padding: 36px 42px 0; margin: 0 auto; }
 .restore-preview { border: 1px solid #bed49d; background: #fafbf5; border-radius: 8px; padding: 20px; margin-top: 22px; }.restore-preview .metric-grid { grid-template-columns: repeat(3, 1fr); margin: 24px 0; }.restore-preview .confirm-replace { display: flex; align-items: center; gap: 12px; min-height: 48px; font-size: 12px; line-height: 1.7; cursor: pointer; }.confirm-replace input { width: 24px; height: 48px; flex-shrink: 0; margin: 0; accent-color: #173d2e; }.restore-preview .form-actions { flex-wrap: wrap; }
 @media (max-width: 950px) { .settings-grid { grid-template-columns: 1fr; }.connection-strip { padding-right: 25px; }.pwa-notice { margin-left: 25px; margin-right: 25px; } }
 @media (max-width: 700px) { .nav-item { width: 20%; }.connection-strip { padding: 6px 20px; font-size: 9px; min-height: 27px; }.pwa-notice { margin: 12px 16px 0; padding: 12px; font-size: 11px; }.update-notice { flex-wrap: wrap; gap: 8px; }.settings-grid, .settings-stack { gap: 17px; }.settings-card { padding: 22px; }.restore-preview { padding: 15px; }.restore-preview .form-actions button { width: 100%; }.settings-card p, .settings-card ol { font-size: 12px; } }
+
+/* Removal follows the notebook palette, with a separate permanent action. */
+.removal-dialog .field-label{display:grid;gap:8px;font-size:13px;font-weight:700;margin:18px 0}
+.removal-dialog h2{overflow-wrap:anywhere}.removal-dialog .error-text{color:#702c20;background:#fbe4dd;padding:12px;border-radius:7px;margin:14px 0}
+.removal-counts{font-size:12px;line-height:1.7;color:var(--muted);margin:16px 0}
+.removal-blockers{list-style:disc;padding:14px 14px 14px 30px;background:#faf0d8;border-radius:7px;font-size:13px;line-height:1.7;color:#704d12}
+.removal-practices{display:grid;gap:6px;margin:18px 0;max-height:180px;overflow:auto}.removal-practices h3{font-size:14px}.removal-practices button{text-align:left;justify-content:flex-start}
+button.danger-button{background:#8c3026;border-color:#8c3026;color:#fff}button.danger-button:hover{background:#702c20}button.danger-button:disabled{opacity:.45;cursor:not-allowed}
+.session-removal-actions,.team-title-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.session-removal-actions{justify-content:flex-end;margin-bottom:14px}
+@media(max-width:700px){.team-title-actions{width:100%}.removal-dialog .form-actions>button{flex:1}.removal-dialog .form-actions{justify-content:stretch}}
