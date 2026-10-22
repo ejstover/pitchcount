@@ -1,0 +1,181 @@
+/* Electric: bright equipment colors on a clear, white working surface. */
+@font-face { font-family: 'Inter'; src: url('/fonts/inter-variable.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; src: url('/fonts/space-grotesk-variable.ttf') format('truetype'); font-weight: 300 700; font-display: swap; }
+
+:root {
+  --electric-blue: #168ed0;
+  --electric-blue-fill: #0077b8; /* White control labels need 4.5:1 contrast. */
+  --electric-link: #006eae;
+  --electric-yellow: #edff36;
+  --electric-pink: #d9227a;
+  --electric-sky: #e6f3ff;
+  --electric-ink: #17232c;
+  --muted: #536170;
+  --line: #dce2e9;
+  --green: var(--electric-link);
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+  color: var(--electric-ink);
+  background: #fff;
+}
+body, .app-shell, .workspace { background: #fff; }
+h1, h2, h3, .stat-value, .count-numbers, .score-side strong, .roster-numbers strong { font-family: 'Space Grotesk', 'Inter', sans-serif; }
+.page-heading h1 { font-family: 'Space Grotesk', 'Inter', sans-serif; font-weight: 700; letter-spacing: -1.5px; }
+button { border-radius: 5px; color: var(--electric-ink); }
+button:hover:not(:disabled) { background: #f0f7fd; }
+input, select, textarea { color: var(--electric-ink); background: #fff; border-color: #cbd5e0; border-radius: 5px; }
+input::placeholder, textarea::placeholder { color: #697582; }
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--electric-link); outline-offset: 3px; }
+.primary, .primary.lime { background: var(--electric-pink); border-color: var(--electric-pink); color: #fff; }
+.primary:hover:not(:disabled), .primary.lime:hover:not(:disabled) { background: #b61963; border-color: #b61963; }
+.text-button, .full-link, .switch-button, .settings-card a { color: var(--electric-link); }
+.text-button:hover:not(:disabled) { background: var(--electric-sky); }
+.eyebrow, .small-label { color: var(--muted); }
+.card, .tracking-card, .empty-card { background: #fff; border-radius: 5px; box-shadow: none; }
+
+.app-header { background: #fff; }
+.app-header .brand { color: var(--electric-ink); font-weight: 800; }
+.app-header .brand-mark, .brand-mark { color: var(--electric-link); }
+.app-header .nav-item { color: var(--muted); font-weight: 500; }
+.app-header .nav-item.selected { color: var(--electric-link); border-bottom-color: var(--electric-blue); }
+.app-header .nav-item:hover:not(:disabled) { background: var(--electric-sky); }
+.app-header .nav-item.selected:hover { background: #f5faff; }
+.coach-initials, .avatar { background: #d6edff; border-color: transparent; color: #005b98; font-weight: 700; }
+.muted-avatar { background: #edf0f4; color: var(--muted); }
+.session-line, .session-line strong { color: var(--electric-ink); }
+.session-badge, .status-tag.active { background: var(--electric-sky); color: var(--electric-link); }
+.session-badge.paused, .paused-message { background: #fff6d8; color: #704d12; }
+.session-line > div > .text-button:last-child { color: var(--electric-pink); font-weight: 700; }
+.roster-tabs button[aria-pressed=true] { border-color: var(--electric-blue); color: var(--electric-link); }
+.pitcher-heading p, .pitcher-card > p, .roster-numbers span, .mini-stats span, .metric-grid dt, .outcome-breakdown span, .session-row-title small, .row-metric small, .quiet-empty, .pitch-log li small, .pitch-log time, .definition, .page-footer { color: var(--muted); }
+.roster-grid .pitcher-card { background: #fff; }
+
+.tracking-card { border: 0; padding: 0; }
+.scoreboard { background: var(--electric-blue-fill); color: var(--electric-yellow); border-radius: 5px; padding: 18px 24px; }
+.score-label, .count-numbers small { color: #fff; font-weight: 700; letter-spacing: .7px; }
+.count-numbers { margin-top: 8px; font-weight: 700; }
+.count-divider { color: #fff; opacity: .7; }
+.score-side { border-color: #ffffff85; }
+.score-side strong { color: #fff; font-weight: 700; }
+.score-side > div:last-child strong { color: var(--electric-yellow); }
+.pitch-grid { gap: 10px; }
+.pitch-title { font-family: 'Inter', sans-serif; font-size: 15px; font-weight: 800; letter-spacing: .2px; line-height: 27px; }
+.pitch-tile { border-radius: 5px; }
+.pitch-ball { --pitch-bg: #0077b8; --pitch-line: #ffffffc9; --pitch-ink: #fff; --pitch-hover: #006ba4; --pitch-center: #fff; --target-ink: #17232c; }
+.pitch-called { --pitch-bg: #edff36; --pitch-line: #65721c; --pitch-ink: #17232c; --pitch-hover: #d6e920; --pitch-center: #fff; --target-ink: #17232c; }
+.pitch-foul { --pitch-bg: #d9227a; --pitch-line: #ffffffc9; --pitch-ink: #fff; --pitch-hover: #b61963; --pitch-center: #fff; --target-ink: #17232c; }
+.pitch-inPlay { --pitch-bg: #cce9ff; --pitch-line: #63869f; --pitch-ink: #17232c; --pitch-hover: #b3ddfb; --pitch-center: #fff; --target-ink: #17232c; }
+.pitch-target.pitch-location-middle { border-color: var(--target-ink); }
+.pitch-target:focus-visible { outline-color: #17232c; }
+.pitch-target.pitch-location-middle:focus-visible { outline-color: var(--electric-link); }
+.swinging-row { padding: 10px 0; }
+.swinging-row > span { display: none; }
+.swinging-row .text-button { width: 100%; min-height: 44px; background: var(--electric-pink); color: #fff; border-radius: 5px; font-size: 13px; font-weight: 700; }
+.swinging-row .text-button:hover:not(:disabled) { background: #b61963; }
+.tracking-actions { padding-top: 10px; gap: 8px; }
+.tracking-actions button { border: 1px solid var(--line); padding: 9px 10px; font-weight: 600; background: #fff; }
+.tracking-actions button:hover:not(:disabled) { background: var(--electric-sky); }
+.tracking-actions .reset-button { color: var(--muted); }
+.session-stats, .stats-overview { border: 0; padding: 24px 0; border-bottom: 1px solid var(--line); border-radius: 0; }
+.metric-grid dd { color: var(--electric-ink); font-weight: 700; }
+.stat-goals .goal-annotation[data-goal-met=true] { color: var(--electric-ink); background: #f2ff95; padding: 8px 10px; border-radius: 3px; }
+.goal-editor > summary { color: var(--electric-link); }
+.goal-help { color: var(--muted); }
+.goal-annotation[data-goal-met=false], .goal-warning { color: #7b4b17; }
+.pitch-log { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding-left: 0; padding-right: 0; }
+.log-dot { background: #778500; }.log-dot.ball { background: var(--electric-blue); }.log-dot.foul { background: var(--electric-pink); }.log-dot.inPlay { background: #5787a8; }
+.notes { border-radius: 0; border: 0; border-top: 1px solid var(--line); padding-left: 0; padding-right: 0; }
+.notes textarea { background: #f5f9fc; }
+.statistics-filters { padding-left: 0; padding-right: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
+.pitch-heatmap { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding-left: 0; padding-right: 0; }
+.heatmap-ramp { background: linear-gradient(to right, #e6f3ff, #0068ad); }
+.heatmap-region-data { color: var(--electric-ink); }
+.heatmap-regions { border-color: #6c8498; }
+.settings-card .settings-notice, .pwa-notice, .restore-preview, .account-editor { background: #f0f8ff; border-color: #b9d8ed; color: var(--electric-ink); }
+.modal { background: #fff; color: var(--electric-ink); border-radius: 8px; }
+.modal::backdrop { background: #17232c80; }
+.settings-card .error-text, .error-banner, .sync-error { background: #fff0ed; color: #842e20; }
+
+.login-shell { background: #fff; }
+.login-story { background: #fff; color: var(--electric-ink); min-height: 100dvh; border-right: 1px solid var(--line); }
+.login-story .brand { color: var(--electric-ink); }
+.brand-caption, .login-story footer { color: var(--muted); }
+.login-story .eyebrow { color: var(--electric-link); }
+.login-story h1 { font-family: 'Space Grotesk', 'Inter', sans-serif; color: var(--electric-link); font-weight: 700; letter-spacing: -2.5px; line-height: 1.08; text-decoration: underline; text-decoration-color: var(--electric-yellow); text-decoration-thickness: 8px; text-underline-offset: 10px; }
+.login-story p { color: var(--muted); }
+.login-field { display: none; }
+.login-card h2 { font-size: 28px; }
+.login-card .text-button { margin-right: 12px; }
+.login-card > button:not(.primary):not(.text-button) { color: var(--electric-link); }
+.login-card form .primary { font-size: 16px; }
+
+@media (max-width: 950px) {
+  .practice-aside .session-stats, .practice-aside .pitch-log { padding: 20px 0; }
+}
+@media (max-width: 700px) {
+  .app-header { padding-left: 20px; padding-right: 20px; }
+  .app-header nav { background: #fff; }
+  .app-header .nav-item { color: var(--muted); }
+  .app-header .nav-item.selected, .app-header .nav-item.selected:hover { background: #fff; color: var(--electric-link); border-radius: 0; }
+  .app-header .nav-item.selected::after { display: block; content: ''; position: absolute; bottom: 0; left: 15%; width: 70%; height: 3px; background: var(--electric-blue); border-radius: 0; }
+  .page-heading h1 { font-size: 34px; }
+  .page-heading { padding-bottom: 12px; }
+  .page-heading p { display: none; }
+  .heading-actions { margin-top: 6px; }
+  .workspace-status { font-size: 12px; }
+  .workspace-status summary { min-height: 40px; }
+  .statistics-filters { padding-top: 14px; padding-bottom: 14px; margin-bottom: 16px; }
+  .statistics-filter-grid { gap: 12px; }
+  .statistics-filter-grid .field-label, .statistics-filter-grid .statistics-date-controls label { font-size: 12px; }
+  .statistics-filter-grid select { margin-top: 5px; }
+  .statistics-scope { display: flex; align-items: center; gap: 10px; font-size: 12px; margin-bottom: 4px; }
+  .statistics-scope select { flex: 1; width: auto; min-width: 0; margin-left: 0; }
+  .stats-overview { padding-top: 20px; }
+  .stats-overview .section-heading { margin-bottom: 18px; }
+  .roster-tabs { margin-top: 12px; }
+  .filter-bar { margin-top: 16px; margin-bottom: 16px; }
+  .roster-grid .pitcher-card { padding: 14px 0; }
+  .pitcher-card .roster-numbers { display: flex; gap: 20px; max-width: none; padding-top: 6px; }
+  .pitcher-card .roster-numbers > div { display: flex; align-items: baseline; gap: 5px; }
+  .pitcher-card .roster-numbers strong { font-size: 18px; }
+  .pitcher-card .roster-numbers span { font-size: 11px; }
+  .pitcher-card .card-actions { margin-top: 0; }
+  .workspace > main { padding-top: 24px; }
+  .is-practicing .workspace > main { padding-top: 8px; }
+  .is-practicing .page-heading h1 { font-size: 24px; }
+  .is-practicing .page-heading { padding-bottom: 0; }
+  .is-practicing .workspace-status summary { min-height: 36px; }
+  .is-practicing .session-line .text-button { min-height: 44px; }
+  .is-practicing .pitcher-heading { padding-bottom: 8px; }
+  .is-practicing .scoreboard { padding: 10px 18px; gap: 14px; }
+  .is-practicing .count-numbers { font-size: 66px; margin-top: 3px; line-height: 1; gap: 16px; }
+  .is-practicing .count-divider { font-size: 28px; line-height: 62px; }
+  .is-practicing .count-numbers small { font-size: 9px; margin-top: 5px; }
+  .is-practicing .score-label { font-size: 10px; letter-spacing: .2px; }
+  .is-practicing .score-side { padding-left: 15px; }
+  .is-practicing .score-side strong { font-size: 25px; margin-top: 5px; }
+  .is-practicing .pitch-grid { margin-top: 10px; }
+  .is-practicing .recording-perspective { margin-top: 10px; }
+  .is-practicing .pitch-location-map { grid-template-rows: repeat(2, 48px); }
+  .is-practicing .swinging-row { padding: 6px 0; }
+  .tracking-actions { flex-wrap: nowrap; gap: 6px; }
+  .tracking-actions button { padding: 8px 6px; font-size: 10px; min-height: 44px; }
+  .tracking-actions button:first-child { flex: 1.2; }.tracking-actions button:nth-child(2) { flex: 1; }.tracking-actions button:last-child { flex: .9; }
+  .practice-aside .session-stats, .practice-aside .pitch-log { padding: 22px 0; }
+  .login-story { min-height: auto; border: 0; padding: 24px; }
+  .login-story > div { margin: 32px 0 0; }
+  .login-story h1 { font-size: 44px; letter-spacing: -1.7px; text-decoration-thickness: 6px; text-underline-offset: 7px; }
+  .login-story p, .login-story footer, .login-story .eyebrow, .login-story .brand-caption { display: none; }
+  .login-panel { padding: 22px 24px 32px; }
+  .login-card h2 { font-size: 25px; margin-top: 0; }
+  .login-card > .eyebrow { display: none; }
+  .login-card > p { margin: 12px 0 24px; }
+  .login-divider { margin: 22px 0; }
+}
+@media (max-width: 359px) {
+  .is-practicing .count-numbers { font-size: 56px; gap: 10px; }
+  .is-practicing .scoreboard { padding: 12px; gap: 10px; }
+  .is-practicing .score-side { padding-left: 12px; }
+  .is-practicing .score-label { font-size: 9px; }
+  .tracking-actions button { padding: 8px 3px; font-size: 9px; gap: 4px; }
+  .login-story h1 { font-size: 39px; }
+}

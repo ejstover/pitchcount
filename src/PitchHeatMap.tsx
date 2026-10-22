@@ -22,7 +22,7 @@ export function PitchHeatMap({ events, outcome: controlledOutcome, onOutcomeChan
         <div className={`heatmap-regions ${stats.located ? '' : 'heatmap-empty'}`} role="group" aria-label="Recorded pitch regions">
           {stats.regions.map(region => {
             const strength = (region.percentage ?? 0) / 100
-            const color = [243, 242, 223].map((channel, index) => Math.round(channel + ([31, 80, 57][index] - channel) * strength))
+            const color = [230, 243, 255].map((channel, index) => Math.round(channel + ([0, 104, 173][index] - channel) * strength))
             return <div key={region.location} role="group" className={`heatmap-region heatmap-${region.location}`} style={{ backgroundColor: `rgb(${color.join(',')})` }} aria-label={`${pitchLocationLabels[region.location]}: ${region.count} pitches, ${region.percentage === null ? 'no located pitches' : `${region.percentage.toFixed(1)}%`}`}>
               <span className="heatmap-region-data"><span className="heatmap-region-name">{pitchLocationLabels[region.location]}</span><strong>{region.count}</strong><span>{percent(region.percentage)}</span></span>
             </div>
