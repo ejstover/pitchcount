@@ -127,7 +127,7 @@ with sync_playwright() as p:
     nav('Statistics')
     page.get_by_label('Statistics source', exact=True).select_option('practice')
     page.get_by_label('Statistics team').select_option(label='Owls')
-    expect(page.locator('.stats-overview .metric-grid div').filter(has=page.get_by_text('Total pitches', exact=True)).locator('dd')).to_have_text('1')
+    expect(page.locator('.stats-overview .metric-grid div').filter(has=page.get_by_text('Total pitches', exact=True)).locator('dd > .stat-value')).to_have_text('1')
     teams()
     page.locator('.team-card').filter(has=page.get_by_role('heading', name='Owls', exact=True)).click()
     page.get_by_role('button', name='Owls bullpen', exact=False).click()

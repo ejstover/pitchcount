@@ -19,13 +19,27 @@ beforeEach(async () => {
 afterEach(async () => { await db.delete() })
 
 describe('JSON backup and restore', () => {
+  it('round-trips v5 goals and reads v4 without goals or account links', async () => {
+    const teamId=(await db.teams.toArray())[0].id
+    await db.goals.add({id:crypto.randomUUID(),scope:'personal',teamId:null,pitcherId,metric:'walkPct',direction:'max',target:10,revision:2,updatedAt:new Date().toISOString(),updatedBy:'player'})
+    await db.goals.add({id:crypto.randomUUID(),scope:'team',teamId,pitcherId:null,metric:'total',direction:'min',target:1000,revision:1,updatedAt:new Date().toISOString(),updatedBy:null})
+    const backup=await repo.exportBackup()
+    expect(backup.goals).toHaveLength(2)
+    expect(backup).not.toHaveProperty('playerAccounts')
+    await repo.restoreBackup(parseBackup(JSON.stringify(backup)))
+    expect((await repo.snapshot()).goals).toEqual(backup.goals)
+    expect(validateBackup({...backup,version:4}).goals).toEqual([])
+    expect(() => validateBackup({...backup,goals:[{...backup.goals[0],pitcherId:'missing'}]})).toThrow('goal')
+    expect(() => validateBackup({...backup,goals:[{...backup.goals[0],target:-1}]})).toThrow('goal')
+    expect(() => validateBackup({...backup,goals:[backup.goals[0],backup.goals[0]]})).toThrow('duplicate')
+  })
   it('preserves all five locations, undo history, and legacy pitches through JSON and restore', async () => {
     await repo.act(sessionId, 'resume')
     for (const location of pitchLocations) await repo.act(sessionId, 'pitch', 'ball', location)
     await repo.act(sessionId, 'undo')
     const before = await repo.snapshot()
     const backup = parseBackup(JSON.stringify(await repo.exportBackup()))
-    expect(backup.version).toBe(4)
+    expect(backup.version).toBe(5)
     expect(backup.events.filter(e => e.pitchLocation).sort((a, b) => a.sequence - b.sequence).map(e => e.pitchLocation)).toEqual(pitchLocations)
     expect(backup.events.find(e => e.pitchType === 'swinging')?.pitchLocation).toBeUndefined()
     await repo.restoreBackup(backup)
@@ -140,7 +154,7 @@ describe('archive backup compatibility', () => {
     const team = (await db.teams.toArray())[0]
     await db.teams.update(team.id,{archived:true});await db.sessions.update(sessionId,{archived:true})
     const backup=await repo.exportBackup()
-    expect(backup.version).toBe(4);expect(backup.teams[0].archived).toBe(true);expect(backup.sessions[0].archived).toBe(true)
+    expect(backup.version).toBe(5);expect(backup.teams[0].archived).toBe(true);expect(backup.sessions[0].archived).toBe(true)
     await repo.restoreBackup(backup)
     expect((await repo.snapshot()).sessions[0].archived).toBe(true)
     const legacy=validateBackup({...backup,version:2})

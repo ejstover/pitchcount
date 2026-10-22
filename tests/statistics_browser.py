@@ -56,7 +56,7 @@ with sync_playwright() as playwright:
         expect(page.locator('[data-save-state]')).to_have_attribute('data-save-state', 'saved')
 
     def total(value):
-        expect(page.locator('.stats-overview .metric-grid dd').first).to_have_text(str(value))
+        expect(page.locator('.stats-overview .metric-grid dd > .stat-value').first).to_have_text(str(value))
 
     def coverage(located, pitches):
         expect(page.locator('.heatmap-coverage')).to_have_text(f'Locations recorded for {located} of {pitches} pitches.')

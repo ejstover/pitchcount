@@ -1,9 +1,10 @@
 import { pitchLocations, project, type Pitcher, type Session, type SessionEvent, type Team, type TeamPitcher } from './domain'
 import { gcSeasonKey, validateGCSummary, type GCMapping, type GCSummary } from './gamechanger'
+import { validGoal, type Goal } from './goals'
 
 export interface Backup {
   format: 'pitchwork-backup'
-  version: 4
+  version: 5
   exportedAt: string
   teams: Team[]
   teamPitchers: TeamPitcher[]
@@ -12,6 +13,7 @@ export interface Backup {
   events: SessionEvent[]
   gcSummaries: GCSummary[]
   gcMappings: GCMapping[]
+  goals: Goal[]
 }
 type Row = Record<string, unknown>
 function fail(message: string): never { throw new Error(`Invalid backup: ${message}`) }
@@ -55,7 +57,7 @@ export function validateBackup(value: unknown): Backup {
     root = { ...root, version: 2, teamPitchers: legacyPitchers.filter(p => p.teamId !== null).map(p => ({ teamId: p.teamId, pitcherId: p.id, active: true })), pitchers: legacyPitchers.map(p => ({ ...p, ownerId: 'legacy' })), sessions: rows(root.sessions, 'sessions', row => ({ ...row, teamId: null, recorderId: 'legacy', deviceId: 'legacy', revision: 0 })) }
   }
   const legacy = root.version === 2
-  if (root.format !== 'pitchwork-backup' || ![2,3,4].includes(root.version as number)) fail('unsupported format or version. Choose a Pitchwork JSON backup.')
+  if (root.format !== 'pitchwork-backup' || ![2,3,4,5].includes(root.version as number)) fail('unsupported format or version. Choose a Pitchwork JSON backup.')
   const archived = (row: Row) => { if (legacy) return false; if (typeof row.archived !== 'boolean') fail('archived must be true or false.'); return row.archived }
   const teams = rows(root.teams, 'teams', row => ({ archived: archived(row), id: text(row.id, 'team id', true), name: text(row.name, 'team name', true), createdAt: timestamp(row.createdAt, 'team creation time'), updatedAt: timestamp(row.updatedAt, 'team update time') }))
   const pitchers = rows<Pitcher>(root.pitchers, 'pitchers', row => {
@@ -83,8 +85,15 @@ export function validateBackup(value: unknown): Backup {
   })
   const teamIds = unique(teams.map(t => t.id), 'teams')
   const pitcherIds = unique(pitchers.map(p => p.id), 'pitchers')
-  const gcSummaries = root.version === 4 ? rows(root.gcSummaries, 'GameChanger summaries', validateGCSummary) : []
-  const gcMappings = root.version === 4 ? rows<GCMapping>(root.gcMappings, 'GameChanger mappings', row => ({ teamId: text(row.teamId, 'mapping team', true), season: text(row.season, 'mapping season', true), sourceKey: text(row.sourceKey, 'mapping source', true), pitcherId: text(row.pitcherId, 'mapping pitcher', true) })) : []
+  const gcSummaries = Number(root.version) >= 4 ? rows(root.gcSummaries, 'GameChanger summaries', validateGCSummary) : []
+  const gcMappings = Number(root.version) >= 4 ? rows<GCMapping>(root.gcMappings, 'GameChanger mappings', row => ({ teamId: text(row.teamId, 'mapping team', true), season: text(row.season, 'mapping season', true), sourceKey: text(row.sourceKey, 'mapping source', true), pitcherId: text(row.pitcherId, 'mapping pitcher', true) })) : []
+  const goals = root.version === 5 ? rows<Goal>(root.goals, 'goals', row => {
+    const g: Goal = { id: text(row.id, 'goal id', true), scope: choice(row.scope, ['team','coach','personal'], 'goal scope'), teamId: row.teamId === null ? null : text(row.teamId, 'goal team', true), pitcherId: row.pitcherId === null ? null : text(row.pitcherId, 'goal pitcher', true), metric: row.metric as Goal['metric'], direction: row.direction as Goal['direction'], target: row.target as number, revision: positiveInteger(row.revision, 'goal revision'), updatedAt: timestamp(row.updatedAt, 'goal update'), updatedBy: row.updatedBy === null ? null : text(row.updatedBy, 'goal author', true) }
+    if (!validGoal(g) || g.teamId && !teamIds.has(g.teamId) || g.pitcherId && !pitcherIds.has(g.pitcherId)) fail('invalid goal or missing goal reference.')
+    return g
+  }) : []
+  unique(goals.map(g => g.id), 'goals')
+  unique(goals.map(g => `${g.scope}/${g.teamId}/${g.pitcherId}/${g.metric}`), 'goal targets')
   unique(gcSummaries.map(s => s.id), 'GameChanger summaries')
   unique(gcSummaries.map(s => `${s.teamId}/${gcSeasonKey(s.season)}`), 'GameChanger team seasons')
   unique(gcMappings.map(m => `${m.teamId}/${gcSeasonKey(m.season)}/${m.sourceKey}`), 'GameChanger mappings')
@@ -122,7 +131,7 @@ export function validateBackup(value: unknown): Backup {
     })
     if (projection.current.pitcherId !== session.selectedPitcherId) fail('selected pitcher disagrees with the session history.')
   }
-  return { format: 'pitchwork-backup', version: 4, exportedAt: timestamp(root.exportedAt, 'export time'), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings }
+  return { format: 'pitchwork-backup', version: 5, exportedAt: timestamp(root.exportedAt, 'export time'), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings, goals }
 }
 
 export function parseBackup(json: string): Backup {

@@ -56,6 +56,14 @@ First sign-in and first team download require internet. Afterward, the last appr
 Before broad use, verify the real setup link/password flow and installed PWA on a physical iPhone. Free-tier limits or project pausing may affect online access; external backups remain useful. No paid plan is enabled by this code.
 
 
+## Player accounts and goals
+
+Deploy the goals/player migration (`202610210004_goals_players.sql` and `202610210005_player_practices.sql`) before redeploying `accounts` and publishing the frontend. Existing admin, coach, and viewer accounts keep their roles and assignments. Database table names retain their historical `coaches` naming, but player accounts never receive `team_coaches` memberships.
+
+In **Accounts & access → Create account**, choose **Player** and link an existing pitcher. The setup-link flow is the same as for coaches. Links are unique in both directions and editable only by the admin; the account’s role remains fixed. Suspending or deleting a player account removes access without deleting the pitcher’s statistics or targets. Permanently deleting the pitcher removes the link; an active account without a link must be relinked before editing personal goals.
+
+Players read team statistics and goals through the linked pitcher’s active roster memberships. Personal goals are global to that pitcher, visible to shared teammates and assigned coaches, and editable only by the linked active player. Team and coach targets require assigned coach/admin access. Goal writes validate ownership and revisions on the server, including direct API calls. Removing membership revokes that team’s access on the next refresh; cached data remains available while offline until access can be checked online.
+
 ## Account removal
 
 Account administration offers **Remove account** with suspension/reactivation or permanent deletion. The admin account is protected. Active teams must retain another active coach before suspension or deletion. Recorded practices must be deleted individually before account deletion; remaining player ownership transfers to the administrator without changing memberships. Access requests can also be deleted with email confirmation.
