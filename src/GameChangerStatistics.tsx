@@ -1,3 +1,5 @@
+import { GoalStat, type GoalContext } from './GoalStat'
+import type { GoalMetric } from './goals'
 import { useState } from 'react'
 import type { Snapshot } from './shared'
 import { gcComparison, type GCStats } from './gamechanger'
@@ -7,16 +9,19 @@ import './gamechanger.css'
 
 interface Props {
   data: Snapshot; mode: 'game' | 'combined'; teamId: string; pitcherId: string; range: DateRange | null
-  onAllTime: () => void
+  goals: GoalContext; onAllTime: () => void
 }
-export function GameChangerStatistics({ data, mode, teamId, pitcherId, range, onAllTime }: Props) {
+export function GameChangerStatistics({ data, mode, teamId, pitcherId, range, onAllTime, goals }: Props) {
   const { included, conflicts, partial } = selectGameChangerSummaries(data.gcSummaries ?? [], { teamId, pitcherId, range })
   const players = included.flatMap(s => s.players.filter(p => !pitcherId || p.pitcherId === pitcherId))
   const selected = selectStatistics(data, { pitcherId, teamId, scope: 'all', range })
   const comparison = gcComparison(selected.appearances, players)
   const [outcome, setOutcome] = useState<'all' | 'ball' | 'strikes' | 'foul' | 'inPlay'>('all')
-  const rows = [['total', 'Pitches'], ['batters', 'Batters faced'], ['walks', 'Walks'], ['strikeouts', 'Strikeouts'], ['walkPct', 'Walk %'], ['pitchesPerBatter', 'Pitches / batter'], ['strikePct', 'Strike %'], ['firstPitchPct', 'First-pitch strike %']] as const
-  const format = (key: string, value: number | null) => value === null ? '—' : key.endsWith('Pct') ? `${value.toFixed(1)}%` : key === 'pitchesPerBatter' ? value.toFixed(2) : String(value)
+  const rows = [['total', 'Pitches'], ['balls', 'Balls'], ['positive', 'Positive strike outcomes'], ['batters', 'Batters faced'], ['walks', 'Walks'], ['strikeouts', 'Strikeouts'], ['walkPct', 'Walk %'], ['pitchesPerBatter', 'Pitches / batter'], ['strikePct', 'Strike %'], ['firstPitchPct', 'First-pitch strike %']] as const
+  const practice: Partial<Record<GoalMetric, number | null>> = comparison.practice
+  const game: Partial<Record<GoalMetric, number | null>> = { ...comparison.game, balls: null, positive: null }
+  const combined: Partial<Record<GoalMetric, number | null>> = players.length ? { ...comparison.combined, balls: null, positive: null } : practice
+  const format = (key: string, value: number | null | undefined) => value == null ? '—' : key.endsWith('Pct') ? `${value.toFixed(1)}%` : key === 'pitchesPerBatter' ? value.toFixed(2) : String(value)
   const title = pitcherId ? data.pitchers.find(p => p.id === pitcherId)?.name : teamId ? data.teams.find(t => t.id === teamId)?.name : 'The whole roster'
   const detailFields: [keyof GCStats, string][] = [['games', 'Games pitched'], ['outs', 'Innings'], ['hits', 'Hits'], ['runs', 'Runs'], ['earnedRuns', 'Earned runs'], ['hitBatters', 'Hit batters'], ['wildPitches', 'Wild pitches'], ['era', 'ERA'], ['whip', 'WHIP']]
   const teamName = (id: string) => data.teams.find(t => t.id === id)?.name ?? 'Team'
@@ -26,7 +31,7 @@ export function GameChangerStatistics({ data, mode, teamId, pitcherId, range, on
       {!!partial.length && <p className="settings-notice" role="status">{partial.length} game {partial.length === 1 ? 'summary is' : 'summaries are'} excluded because the dates cover only part of the imported totals. <button className="text-button" onClick={onAllTime}>Show all time</button></p>}
       {!!conflicts.length && <div className="settings-notice" role="status"><strong>Overlapping game summaries excluded.</strong><p>Practice and other game data are still included. Review coverage or remove duplicate summaries in account settings.</p><ul>{conflicts.map(s => <li key={s.id}>{teamName(s.teamId)} · {s.season} · {s.coverageStart} – {s.coverageEnd}</li>)}</ul></div>}
       {!players.length && <p className="settings-help">{mode === 'combined' ? 'Showing practice results only. ' : ''}No imported games match these filters. Game data can be imported in account settings.</p>}
-      <div className="gc-table-wrap"><table className="gc-table"><caption>{mode === 'combined' ? 'Practice and game results' : 'Imported game results'}</caption><thead><tr><th>Measure</th>{mode === 'combined' && <th>Practice</th>}<th><abbr title="GameChanger">GC games</abbr></th>{mode === 'combined' && <th>Combined</th>}</tr></thead><tbody>{rows.map(([key, label]) => <tr key={key}><th>{label}</th>{mode === 'combined' && <td>{format(key, comparison.practice[key])}</td>}<td>{format(key, comparison.game[key])}</td>{mode === 'combined' && <td>{format(key, players.length ? comparison.combined[key] : comparison.practice[key])}{players.length > 0 && ['strikePct', 'firstPitchPct'].includes(key) && comparison.combined[key] !== null && <small>Estimated</small>}</td>}</tr>)}</tbody></table></div>
+      <div className="gc-table-wrap"><table className={`gc-table gc-results-${mode}`}><caption>{mode === 'combined' ? 'Practice and game results' : 'Imported game results'}</caption><thead><tr><th>Measure</th>{mode === 'combined' && <th>Practice</th>}<th><abbr title="GameChanger">GC games</abbr></th>{mode === 'combined' && <th>Combined</th>}</tr></thead><tbody>{rows.map(([key, label]) => <tr key={key}><th>{label}</th>{mode === 'combined' && <td><span className="stat-value">{format(key, practice[key])}</span></td>}<td><span className="stat-value">{format(key, game[key])}</span>{mode === 'game' && <GoalStat context={goals} metric={key} actual={game.total ? game[key] : null} />}</td>{mode === 'combined' && <td><span className="stat-value">{format(key, combined[key])}</span>{players.length > 0 && ['strikePct', 'firstPitchPct'].includes(key) && combined[key] !== null && <small>Estimated</small>}<GoalStat context={goals} metric={key} actual={combined.total ? combined[key] : null} /></td>}</tr>)}</tbody></table></div>
       {(['strikePct', 'firstPitchPct'] as const).filter(key => players.some(p => p.stats[key] === null && (p.stats[key === 'strikePct' ? 'pitches' : 'batters'] ?? 0) > 0)).map(key => <p key={key} className="settings-notice">Missing {key === 'strikePct' ? 'strike percentage' : 'first-pitch strike percentage'} for: {[...new Set(players.filter(p => p.stats[key] === null).map(p => p.name))].join(', ')}.</p>)}
       <details className="gc-data-details"><summary>Data coverage & calculation notes{included.length ? ` · ${included.length} game ${included.length === 1 ? 'summary' : 'summaries'}` : ''}</summary>
         <p>Practice uses session start dates in your local time. Game summaries are included only when their full coverage falls within the selected dates. Overlapping summaries for the same team are excluded to prevent double counting.</p>

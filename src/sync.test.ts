@@ -35,6 +35,26 @@ beforeEach(async () => {
 })
 afterEach(async () => { await db.delete(); vi.unstubAllGlobals() })
 describe('account-scoped offline session synchronization', () => {
+  it('caches player links and goals across offline reopening and removes revoked team goals on refresh', async () => {
+    remote.coaches[0]={...remote.coaches[0],role:'player',pitcherId:'p1'}
+    remote.goals=[{id:'goal',scope:'team',teamId:'t1',pitcherId:null,metric:'strikePct',direction:'min',target:60,revision:1,updatedAt:new Date().toISOString(),updatedBy:null}]
+    await repo.sync()
+    const name=db.name
+    db.close();db=new PitchDatabase(name);repo=new Repository(db,identity,gateway)
+    vi.stubGlobal('navigator',{onLine:false})
+    await repo.sync()
+    expect((await repo.snapshot()).goals).toHaveLength(1)
+    expect((await repo.snapshot()).coaches[0].pitcherId).toBe('p1')
+    await expect(repo.startSession('p1','Team practice','t1')).rejects.toThrow('own independent practices')
+    await expect(repo.startSession('other','Private')).rejects.toThrow()
+    await expect(repo.savePitcher({name:'Forbidden',jersey:'',teamIds:[]})).rejects.toThrow('Coach access')
+    await expect(repo.saveTeam({name:'Forbidden'})).rejects.toThrow('Coach access')
+    remote.goals=[];remote.teams=[];remote.teamCoaches=[];remote.teamPitchers=[]
+    vi.stubGlobal('navigator',{onLine:true})
+    await repo.sync()
+    expect((await repo.snapshot()).goals).toEqual([])
+    expect((await repo.snapshot()).teams).toEqual([])
+  })
   it('commits source events and upload operations together and recovers them after reopening', async () => {
     const sid = await repo.startSession('p1', '', 't1')
     await repo.act(sid, 'pitch', 'foul', 'downOut')

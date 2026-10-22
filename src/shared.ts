@@ -1,11 +1,13 @@
 import type { Appearance, Coach, Invitation, Pitcher, Session, SessionEvent, Team, TeamCoach, TeamPitcher } from './domain'
 import type { GCMapping, GCSummary } from './gamechanger'
+import type { Goal } from './goals'
 
 export interface Snapshot {
   teams: Team[]; pitchers: Pitcher[]; coaches: Coach[]; teamPitchers: TeamPitcher[]; teamCoaches: TeamCoach[]
   invitations: Invitation[]; sessions: Session[]; appearances: Appearance[]; events: SessionEvent[]
   deletions?: { kind: RemovalKind; id: string }[]
   gcSummaries?: GCSummary[]; gcMappings?: GCMapping[]
+  goals?: Goal[]
 }
 export type RemovalKind = 'pitcher' | 'team' | 'session' | 'coach' | 'request'
 export interface RemovalTarget { kind: RemovalKind; id: string; name: string; archived: boolean }

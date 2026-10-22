@@ -28,6 +28,7 @@ export function AuthGate() {
     if (current.current?.profile.id === profile.id) {
       if (!offline) await current.current.repository.sync()
       if (profile.id !== cachedSessionUserId() || !current.current) return
+      cacheProfile(profile)
       current.current = {...current.current,profile};setAccess(current.current);return
     }
     current.current?.repository.db.close()
