@@ -1,3 +1,36 @@
+# Pitchwork Electric — design QA
+
+final result: passed
+
+## Selected target and evidence
+
+The user selected option 1 (Electric) from the latest equipment-color concept set. Source: `C:/Users/Eric Stover/.codex/visualizations/2026/10/22/01a160fb-e142-7e81-be62-5eefb63be670/equipment-color-revision/electric.png`.
+
+Joint source/implementation comparison: `.test-artifacts/electric-qa/reference-comparison.jpg`. Final rendered mobile views: `practice-390.png`, `statistics-390.png`, `roster-390.png`, and `login-390.png` in that folder. Additional Practice and sign-in captures cover 320, 768, and 1440 pixels. The app was also inspected and exercised in the Codex in-app browser.
+
+This is a style update to the existing production app rather than replacement with a static prototype. Actual statistics, additional filters, editable goals, roster management, player username sign-in, and Awards navigation remain. The sample practice matches the concept's 1–2 count, 24 pitches and 67% strikes; aggregate statistics and list order use real sample records rather than the image's invented totals. These retained controls require more vertical space than the concept.
+
+## Findings, corrections, and final comparison
+
+- P2: bottom navigation initially overlapped the Practice actions at 390 × 844. Reduced heading/session/scoreboard spacing while retaining every 48 × 48 location target. Recapture and bounding-box checks confirm all three actions end above the navigation.
+- P2: the concept's bright blue produced only 3.61:1 contrast against small white labels. Blue working fills now use #0077b8 (4.85:1); #168ed0 remains the accent. Pink #d9227a with white is 4.71:1. Count numerals use acid yellow; yellow tiles use dark ink.
+- P2: initial Statistics and Roster spacing retained excessive space from the previous design. Compacted mobile headings, filters and roster summaries. The updated joint comparison verifies white surfaces, flat rows, Space Grotesk/Inter typography, blue number badges, pink actions, and explicit pitch labels/target dividers.
+- The heatmap keeps a single blue intensity scale rather than the concept's categorical quadrant colors so hue continues to represent frequency. Its legend and regional interpolation share the same endpoints.
+
+No actionable P0/P1/P2 issues remain for this style-update scope. P3: supporting content scrolls farther than the concept because existing production controls are preserved; raster mockup spacing is not a pixel-exact specification for those additional controls.
+
+## Validation
+
+- `npm test`: 214 tests passed across 14 files.
+- Production build/type checking passed; locally hosted Space Grotesk and Inter fonts and their licenses are included, and the fonts are in the PWA precache.
+- Browser acceptance passed for all 20 outcome/location targets, circle hit detection, keyboard input, rapid taps, undo, reload, pause, layouts, history and exported locations.
+- Statistics/date/heatmap checks, team management checks, and authentication/account checks passed.
+- Final responsive capture checks passed at 320/390/768/1440 pixels with no horizontal overflow, all location targets at least 48 pixels, and Practice actions above navigation at 390 × 844. No browser page errors.
+
+---
+
+# Previous design QA (historical)
+
 # Pitchwork option 3 — design QA
 
 final result: passed
