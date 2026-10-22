@@ -29,7 +29,7 @@ export function cachedSessionUserId(): string | null {
 export function readCachedProfile(): AccountProfile | null {
   try {
     const value = JSON.parse(localStorage.getItem(profileCacheKey) ?? 'null')
-    return value && value.id === cachedSessionUserId() && typeof value.name === 'string' && typeof value.email === 'string' && ['admin','coach','viewer'].includes(value.role) && value.active === true ? value : null
+    return value && value.id === cachedSessionUserId() && typeof value.name === 'string' && typeof value.email === 'string' && ['admin','coach','viewer','player'].includes(value.role) && value.active === true ? value : null
   } catch { return null }
 }
 export function cacheProfile(profile: AccountProfile | null) {

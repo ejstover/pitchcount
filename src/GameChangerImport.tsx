@@ -1,3 +1,4 @@
+import { isCoach } from './domain'
 import { useEffect, useState } from 'react'
 import { createId } from './id'
 import { gcFingerprint, gcSeasonKey, parseGameChanger, suggestGCMatch, suggestSeason, type GCImport } from './gamechanger'
@@ -16,7 +17,7 @@ export function GameChangerImport({ data, repository, disabled, onPreview }: { d
   const coach = data.coaches.find(c => c.id === repository.identity.coachId)
   const teams = data.teams.filter(t => !t.archived && (coach?.role === 'admin' || data.teamCoaches.some(m => m.teamId === t.id && m.coachId === repository.identity.coachId)))
   const existing = (data.gcSummaries ?? []).find(s => s.teamId === teamId && gcSeasonKey(s.season) === gcSeasonKey(season))
-  const locked = disabled || busy || !navigator.onLine || !coach?.active || coach.role === 'viewer'
+  const locked = disabled || busy || !navigator.onLine || !isCoach(coach)
   useEffect(() => { onPreview(!!parsed); return () => onPreview(false) }, [parsed, onPreview])
   function resetChoices() { setChoices({}); setConfirmed({}); setStaged(null); setCoverage(false); setError('') }
   function preview() {

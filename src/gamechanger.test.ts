@@ -137,7 +137,7 @@ describe('GC persistence and backups', () => {
       await db.gcSummaries.put(s)
       await db.gcMappings.bulkPut(s.players.map(p => ({ teamId: s.teamId, season: s.season, sourceKey: p.sourceKey, pitcherId: p.pitcherId })))
       const backup = await repo.exportBackup()
-      expect(backup.version).toBe(4)
+      expect(backup.version).toBe(5)
       expect(backup.events).toEqual([])
       await new Repository(target).restoreBackup(JSON.parse(JSON.stringify(backup)))
       expect((await new Repository(target).snapshot()).gcSummaries).toEqual([s])

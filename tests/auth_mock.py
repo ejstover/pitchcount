@@ -41,9 +41,10 @@ def install(context, role='coach', signed_in=True):
 class Backend:
     def __init__(self, role):
         self.profile = {'id': COACH_ID, 'email': 'coach@example.com', 'name': 'Test Coach', 'role': role, 'active': True}
-        self.data = {'coaches': [self.profile], 'teams': [], 'teamPitchers': [], 'teamCoaches': [], 'pitchers': [], 'invitations': [], 'sessions': [], 'events': []}
+        self.data = {'coaches': [self.profile], 'teams': [], 'teamPitchers': [], 'teamCoaches': [], 'pitchers': [], 'invitations': [], 'sessions': [], 'events': [], 'goals': []}
         self.operations = {}
         self.requests = []
+        self.goal_requests = []
         self.fail_upload = False
         self.fail_remove = False
         self.setup_used = False
@@ -87,10 +88,12 @@ class Backend:
             elif action in ('create', 'update'):
                 account_id = payload.get('id') or str(uuid.uuid4())
                 if action == 'create':
-                    self.data['coaches'].append({'id': account_id, 'name': payload['name'], 'email': payload['email'], 'role': 'coach', 'active': True})
+                    self.data['coaches'].append({'id': account_id, 'name': payload['name'], 'email': payload['email'], 'role': payload.get('role', 'coach'), 'active': True, 'pitcherId': payload.get('pitcherId')})
                 for account in self.data['coaches']:
                     if account['id'] == account_id:
                         account['active'] = payload['active']
+                        if account.get('role') == 'player':
+                            account['pitcherId'] = payload['pitcherId']
                 self.data['teamCoaches'] = [m for m in self.data['teamCoaches'] if m['coachId'] != account_id] + [{'coachId': account_id, 'teamId': t} for t in payload['teamIds']]
                 for request in self.requests:
                     if request['email'] == payload.get('email'):
@@ -129,6 +132,19 @@ class Backend:
             stamp = '2026-10-19T12:00:00.000Z'
             if action in ('removalPreview', 'archiveRecord', 'deleteRecord'):
                 result, status = self.removal(action, item)
+            elif action in ('saveGoal', 'deleteGoal'):
+                self.goal_requests.append(copy.deepcopy(item))
+                goals = self.data.setdefault('goals', [])
+                prior = next((g for g in goals if g['id'] == item['id']), None)
+                if item.get('expectedRevision') != (prior['revision'] if prior else 0):
+                    status, result = 409, {'message': 'Goal changed. Refresh and review again.', 'code': '40001'}
+                elif action == 'deleteGoal':
+                    self.data['goals'] = [g for g in goals if g['id'] != item['id']]
+                else:
+                    goal = {k: v for k, v in item.items() if k != 'expectedRevision'}
+                    goal.update(revision=(prior['revision'] if prior else 0) + 1, updatedAt=stamp, updatedBy=COACH_ID)
+                    self.data['goals'] = [g for g in goals if g['id'] != item['id']] + [goal]
+                    result = goal
             elif action == 'saveTeam':
                 self.data['teams'] = [t for t in self.data['teams'] if t['id'] != item['id']] + [{'id': item['id'], 'name': item['name'], 'createdAt': stamp, 'updatedAt': stamp}]
                 if not any(m['teamId'] == item['id'] and m['coachId'] == COACH_ID for m in self.data['teamCoaches']):

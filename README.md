@@ -67,6 +67,28 @@ Remove a pitcher from one team through its roster; their other memberships and h
 - **Pitches per batter:** total pitches / batters faced.
 - Empty denominators display “—”. Manually ending, switching, resetting, or ending a practice never creates a walk or strikeout.
 
+### Goals and player accounts
+
+Statistics supports ongoing targets for all ten summary measures. Select a team to set staff targets, or a pitcher to view individual targets. Use **Set goal / Edit goals** beside a measure; smaller text shows each target and the current result’s difference. Date, source, and roster filters change the comparison, not the saved target. Percentage differences are percentage points. Missing data cannot meet a goal; Combined retains its coverage and estimate notices. Balls and positive-strike counts are unavailable for Games and for Combined when game totals contribute.
+
+Assigned coaches (or the admin) edit team standards and team-specific coach targets for individual pitchers. Linked players edit their own personal targets, shared across teams and data sources. Team rate standards apply to pitchers as well as the staff; team count targets measure staff totals. A personal target that is less demanding than any active team standard or coach target displays a warning but can still be saved. Opposing count directions are labeled as different target directions.
+
+In **Settings → Accounts & access**, the admin can create a **Player** account and choose its existing pitcher. Each account links to one pitcher, and each pitcher can have one player account. Team access follows that pitcher’s active memberships; links never confer coaching permissions. Players open on their own Statistics and can view teammates’ statistics and goals. Roster management, imports, restore, and coach targets remain restricted to coaches. Player practice recording is limited to their own independent practices.
+
+Goal editing requires connectivity. Downloaded targets and comparisons remain readable offline. Concurrent changes produce **Refresh goal** instead of overwriting someone else’s edit. Archiving preserves targets; removing a roster membership ends its team access and warnings. Permanent team/pitcher deletion removes dependent targets. Backups export version 5, include goals, and still accept versions 1–4. Restored copies never restore account links; restored personal goals need a linked player before editing.
+
+Deploy `202610210004_goals_players.sql` and `202610210005_player_practices.sql`, then the updated accounts function, before publishing the frontend:
+
+```sh
+npx supabase db push --dry-run
+npx supabase db push
+npx supabase functions deploy accounts --use-api
+npm test
+npm run build
+```
+
+`python tests/goals_browser.py` uses the mocked Supabase Vite environment from `tests/auth_mock.py`. It checks inline editing, warnings, conflicts, offline controls, teammate visibility, account linking, and 320/390/768/1440-pixel layouts. SQL authorization tests run through `npm test`.
+
 ### Pitch locations and date ranges
 
 Statistics defaults to **All time + All pitches**, combining all history available to the signed-in coach, including archived practices and pitchers. The five-region heat map shows counts and percentages from the pitcher's view. Choose **Balls**, **Strikes** (called and swinging), **Fouls**, or **In play** to examine one outcome without changing the summary statistics. Each pitcher in session review also has an independent map for their complete session.
@@ -89,7 +111,7 @@ There is no season selector in Statistics. All imported summaries fully covered 
 
 Combined strike and first-pitch strike rates are **estimates**, weighted by GC pitches and batters faced respectively. Missing rates display as unavailable. Practice/game scoring definitions can differ. Innings, ERA, WHIP, and other game-only values stay in the GC detail view. Summaries create no synthetic pitches, appearances, or locations; heat maps and pitch-outcome breakdowns continue to use practice events. Season totals cannot reconstruct individual games, partial-period trends, or daily workload.
 
-JSON backups now use version 4 and include summaries and remembered mappings. Versions 1–3 still restore. Production restore creates new copies with remapped team/player references and preserves existing records. Remove related summaries before permanently deleting a referenced team or pitcher; archiving retains them.
+JSON backups now use version 5 and include goals, summaries, and remembered mappings. Versions 1–4 still restore. Production restore creates new copies with remapped team/player references and preserves existing records. Remove related summaries before permanently deleting a referenced team or pitcher; archiving retains them.
 
 Deploy the backend **before** publishing the new frontend:
 

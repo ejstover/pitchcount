@@ -1,5 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import { createId as id } from './id'
+import type { Goal, GoalDraft } from './goals'
+import { isCoach } from './domain'
 import type { GCImport, GCMapping, GCSummary } from './gamechanger'
 import { validateBackup, type Backup } from './backup'
 import { pitchLocations, project, type Appearance, type Pitcher, type PitchLocation, type PitchType, type Session, type SessionEvent, type Team, type Coach, type TeamCoach, type TeamPitcher, type Invitation } from './domain'
@@ -8,6 +10,7 @@ import { CloudError, type Gateway, type Identity, type SavePitcher, type Snapsho
 export type { Snapshot } from './shared'
 
 export class PitchDatabase extends Dexie {
+  goals!: Table<Goal, string>
   gcSummaries!: Table<GCSummary, string>
   gcMappings!: Table<GCMapping, [string, string, string]>
   teams!: Table<Team, string>
@@ -40,6 +43,7 @@ export class PitchDatabase extends Dexie {
       await tx.table('sessions').toCollection().modify(s => { s.archived ??= false })
     })
     this.version(4).stores({ gcSummaries: 'id, teamId, [teamId+season]', gcMappings: '[teamId+season+sourceKey], pitcherId' })
+    this.version(5).stores({ goals: 'id, teamId, pitcherId' })
   }
 }
 const now = () => new Date().toISOString()
@@ -59,11 +63,19 @@ export class Repository {
   owns(session: Session) { return !session.recovered && session.recorderId === this.identity.coachId && session.deviceId === this.identity.deviceId }
   private writable(session: Session) { if (session.archived) throw new Error('Reactivate the practice before editing it.'); if (!this.owns(session)) throw new Error('This practice is read-only on this device.') }
   private async eligible(pitcherId: string, teamId: string | null) {
+    const actor = await this.db.coaches.get(this.identity.coachId)
+    if (actor?.role === 'player') {
+      if (!actor.active || teamId || actor.pitcherId !== pitcherId) throw new Error('Players can record only their own independent practices.')
+    } else await this.requireCoach()
     if (teamId && (await this.db.teams.get(teamId))?.archived) throw new Error('Choose an active team.')
     const pitcher = await this.db.pitchers.get(pitcherId)
     const member = teamId ? await this.db.teamPitchers.get([teamId, pitcherId]) : null
     if (!pitcher || pitcher.archived || (teamId && !member?.active)) throw new Error('Choose an active pitcher on this team.')
     if (teamId && !await this.db.teamCoaches.get([teamId, this.identity.coachId]) && (await this.db.coaches.get(this.identity.coachId))?.role !== 'admin') throw new Error('You are no longer assigned to this team.')
+  }
+  private async requireCoach() {
+    const profile = await this.db.coaches.get(this.identity.coachId)
+    if (profile && !isCoach(profile)) throw new Error('Coach access is required to record or manage practices.')
   }
   private async queueUpload(session: Session) {
     let expectedRevision = session.revision
@@ -90,16 +102,18 @@ export class Repository {
       coaches: await this.db.coaches.toArray(), teamCoaches: await this.db.teamCoaches.toArray(), teamPitchers: await this.db.teamPitchers.toArray(), invitations: await this.db.invitations.toArray(),
       sessions: (await this.db.sessions.toArray()).map(s => ({...s, archived: s.archived ?? false})), appearances: await this.db.appearances.toArray(), events: await this.db.events.toArray(),
       gcSummaries: await this.db.gcSummaries.toArray(), gcMappings: await this.db.gcMappings.toArray(),
+      goals: await this.db.goals.toArray(),
     }))
   }
   exportBackup(): Promise<Backup> {
     return this.serial(async () => {
-      const { teams, pitchers, sessions, events, teamPitchers, gcSummaries, gcMappings } = await this.snapshot()
-      return validateBackup({ format: 'pitchwork-backup', version: 4, exportedAt: now(), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings })
+      const { teams, pitchers, sessions, events, teamPitchers, gcSummaries, gcMappings, goals } = await this.snapshot()
+      return validateBackup({ format: 'pitchwork-backup', version: 5, exportedAt: now(), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings, goals })
     })
   }
   restoreBackup(value: unknown, operationId = id()): Promise<void> {
     return this.serial(async () => {
+      await this.requireCoach()
       const backup = validateBackup(value)
       // Production imports are server-validated copies. Membership permissions are never imported.
       if (this.gateway) {
@@ -118,16 +132,24 @@ export class Repository {
         await this.db.events.bulkAdd(backup.events)
         await this.db.gcSummaries.bulkAdd(backup.gcSummaries)
         await this.db.gcMappings.bulkAdd(backup.gcMappings)
+        await this.db.goals.bulkAdd(backup.goals)
         await this.db.appearances.bulkAdd(appearances)
       })
     })
   }
-  async manage(action: string, input: Record<string, unknown>): Promise<void> {
+  async manage<T = unknown>(action: string, input: Record<string, unknown>): Promise<T> {
     if (this.retired) throw new Error('This account has been closed.')
     if (!this.gateway) throw new Error('Shared team setup is unavailable.')
     if (!navigator.onLine) throw new Error('Reconnect to manage teams and assignments.')
-    await this.gateway.manage(action, input)
+    const result = await this.gateway.manage(action, input)
     await this.refresh()
+    return result as T
+  }
+  async saveGoal(draft: GoalDraft, existing?: Goal): Promise<Goal> {
+    return this.manage<Goal>('saveGoal', { ...draft, id: existing?.id ?? id(), expectedRevision: existing?.revision ?? 0 })
+  }
+  async deleteGoal(goal: Goal): Promise<void> {
+    await this.manage('deleteGoal', { id: goal.id, expectedRevision: goal.revision })
   }
   importGameChanger(input: GCImport): Promise<void> {
     return this.serial(async () => { await this.manage('importGameChanger', { ...input }) })
@@ -148,6 +170,7 @@ export class Repository {
   }
   saveTeam(input: { id?: string; name: string }): Promise<string> {
     return this.serial(async () => {
+      await this.requireCoach()
       const name = input.name.trim()
       if (!name) throw new Error('Enter a team name.')
       const teamId = input.id ?? id()
@@ -162,6 +185,7 @@ export class Repository {
   }
   savePitcher(input: SavePitcher): Promise<void> {
     return this.serial(async () => {
+      await this.requireCoach()
       const name = input.name.trim()
       if (!name) throw new Error('Enter a pitcher name.')
       const pitcherId = input.id ?? id()
@@ -179,7 +203,8 @@ export class Repository {
     })
   }
   archivePitcher(pitcherId: string, archived: boolean): Promise<void> {
-    return this.serial(() => this.db.transaction('rw', this.db.pitchers, this.db.sessions, this.db.teamPitchers, async () => {
+    return this.serial(() => this.db.transaction('rw', this.db.pitchers, this.db.sessions, this.db.teamPitchers, this.db.coaches, async () => {
+      await this.requireCoach()
       const pitcher = await this.db.pitchers.get(pitcherId)
       if (!pitcher) throw new Error('Pitcher could not be found.')
       if (this.gateway) throw new Error('Archive using the online roster action.')
@@ -219,10 +244,13 @@ export class Repository {
   }
   act(sessionId: string, action: 'pitch' | 'next' | 'reset' | 'switch' | 'undo' | 'pause' | 'resume' | 'end', value?: string, pitchLocation?: PitchLocation): Promise<void> {
     return this.serial(() => this.db.transaction('rw', this.db.tables, async () => {
+      const actor=await this.db.coaches.get(this.identity.coachId)
+      if(actor?.role!=='player') await this.requireCoach()
       if (pitchLocation !== undefined && (action !== 'pitch' || !pitchLocations.includes(pitchLocation))) throw new Error('Choose a valid location for a pitch.')
       const session = await this.db.sessions.get(sessionId)
       if (!session || session.status === 'ended') throw new Error('This session has ended.')
       this.writable(session)
+      if(actor?.role==='player' && (!actor.active || session.teamId || session.pitcherIds.some(p=>p!==actor.pitcherId) || action==='switch')) throw new Error('Players can record only their own independent practices.')
       if (session.teamId && !await this.db.teamCoaches.get([session.teamId, this.identity.coachId]) && (await this.db.coaches.get(this.identity.coachId))?.role !== 'admin') throw new Error('You are no longer assigned to this team.')
       if (session.status === 'paused' && action !== 'resume' && action !== 'end') throw new Error('Resume the session before recording changes.')
       if (action === 'resume') session.status = 'active'
@@ -256,7 +284,8 @@ export class Repository {
     }))
   }
   saveNotes(sessionId: string, notes: string): Promise<void> {
-    return this.serial(() => this.db.transaction('rw', this.db.sessions, this.db.events, this.db.uploads, async () => {
+    return this.serial(() => this.db.transaction('rw', this.db.sessions, this.db.events, this.db.uploads, this.db.coaches, async () => {
+      await this.requireCoach()
       const session = await this.db.sessions.get(sessionId)
       if (!session) throw new Error('Session could not be found.')
       this.writable(session)
@@ -311,6 +340,7 @@ export class Repository {
       await this.db.coaches.bulkPut(remote.coaches); await this.db.teamCoaches.bulkPut(remote.teamCoaches)
       await this.db.teamPitchers.bulkPut(remote.teamPitchers); await this.db.invitations.bulkPut(remote.invitations)
       await this.db.gcSummaries.bulkPut(remote.gcSummaries ?? []); await this.db.gcMappings.bulkPut(remote.gcMappings ?? [])
+      await this.db.goals.bulkPut(remote.goals ?? [])
       await this.db.sessions.bulkPut(sessions); await this.db.events.bulkPut(source)
       await this.db.appearances.bulkPut(sessions.flatMap(s => project(s, source.filter(e => e.sessionId === s.id)).appearances))
     })

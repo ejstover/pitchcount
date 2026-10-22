@@ -37,7 +37,10 @@ Deno.serve(async req => {
     if (authError || !auth.user) return reply({error:'Sign in again to reconnect.',code:'reauth'},401)
     const profile = await checked(service.from('coaches').select('*').eq('id',auth.user.id).maybeSingle())
     if (!profile || !profile.active || !auth.user.email_confirmed_at || profile.email !== auth.user.email?.toLowerCase()) return reply({error:'Your account is unapproved or suspended. Contact the admin.',code:'access_denied'},403)
-    if (body.action === 'profile') return reply(profile)
+    if (body.action === 'profile') {
+      const link = profile.role === 'player' ? await checked(service.from('player_accounts').select('pitcher_id').eq('account_id',profile.id).maybeSingle()) : null
+      return reply({...profile,pitcherId:link?.pitcher_id ?? null})
+    }
     if (profile.role !== 'admin') return reply({error:'Only the admin can manage accounts.'},403)
     const action = (name:string,data:unknown) => checked(service.rpc('account_action',{p_actor:profile.id,p_action:name,p_data:data}))
     async function setupLink(id:string) {
@@ -50,13 +53,14 @@ Deno.serve(async req => {
       return {setupLink:link.toString()}
     }
     if (body.action === 'list') {
-      const [profiles,requests,memberships,pendingDeletions] = await Promise.all([
+      const [profiles,requests,memberships,pendingDeletions,playerLinks] = await Promise.all([
         checked(service.from('coaches').select('*').order('name')),
         checked(service.from('access_requests').select('*').order('created_at',{ascending:false})),
         checked(service.from('team_coaches').select('*')),
         checked(service.from('account_deletions').select('id')),
+        checked(service.from('player_accounts').select('*')),
       ])
-      return reply({profiles,requests,memberships,pendingDeletions})
+      return reply({profiles:profiles.map(p => ({...p,pitcherId:playerLinks.find(l => l.account_id === p.id)?.pitcher_id ?? null})),requests,memberships,pendingDeletions})
     }
     if (['removalPreview','deleteRecord','suspendRecord','retryDeletion'].includes(body.action)) {
       if (!['coach','request'].includes(body.kind)) throw new Error('Unsupported account removal')
@@ -76,7 +80,10 @@ Deno.serve(async req => {
       let id = body.id
       if (body.action === 'create') {
         const email = accountEmail(body.email),name = requiredText(body.name,100)
-        const provision = await action('prepare',{email,name})
+        const role = body.role ?? 'coach'
+        if (!['coach','player'].includes(role)) throw new Error('Choose Coach or Player')
+        if (role === 'player' && teamIds.length) throw new Error('Players cannot receive coaching assignments')
+        const provision = await action(role === 'player' ? 'preparePlayer' : 'prepare',{email,name,pitcherId:role === 'player' ? uuid(body.pitcherId) : null})
         id = provision.id
         const existing = await service.auth.admin.getUserById(id)
         if (!existing.data.user) {
@@ -84,7 +91,8 @@ Deno.serve(async req => {
           if (error) throw new Error('Account creation failed. Check the auth hook and retry.')
         }
       }
-      await action('update',{id:uuid(id),active:body.active,teamIds})
+      const target = await checked(service.from('coaches').select('role').eq('id',uuid(id)).single())
+      await action('update',{id:uuid(id),active:body.active,teamIds,pitcherId:target.role === 'player' ? uuid(body.pitcherId) : null})
       return reply(body.action === 'create' ? await setupLink(id) : {})
     }
     return reply({error:'Unknown action'},400)

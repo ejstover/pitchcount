@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PitchDatabase, Repository } from './storage'
 import { CloudError, type Gateway, type Upload } from './shared'
@@ -115,11 +115,9 @@ beforeAll(async () => {
     create schema auth; create table auth.users(id uuid primary key,email text);
     create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
     grant usage on schema auth,public to authenticated; grant execute on function auth.uid() to authenticated;`)
-  await sql.exec(readFileSync('supabase/migrations/202610190001_accounts.sql', 'utf8'))
-  await sql.exec(readFileSync('supabase/migrations/202610190002_teams.sql', 'utf8'))
-  await sql.exec(readFileSync('supabase/migrations/202610210001_removal.sql', 'utf8'))
-  await sql.exec(readFileSync('supabase/migrations/202610210002_gamechanger.sql', 'utf8'))
-  await sql.exec(readFileSync('supabase/migrations/202610210003_gamechanger_workspace.sql', 'utf8'))
+  for (const migration of readdirSync('supabase/migrations').filter(name => name.endsWith('.sql')).sort()) {
+    await sql.exec(readFileSync(`supabase/migrations/${migration}`, 'utf8'))
+  }
 }, 30_000)
 beforeEach(async () => {
   await sql.exec(`reset role; truncate public.account_deletions,public.removal_visibility,public.record_tombstones,public.operation_receipts, public.practices, public.invitations, public.team_pitchers, public.pitchers, public.team_coaches, public.teams, public.coaches, public.account_provisions, auth.users cascade;
@@ -128,6 +126,171 @@ beforeEach(async () => {
   await login(a)
 })
 afterAll(async () => { await sql?.close() })
+
+async function playerAccount(pid: string, email = 'player@example.com') {
+  await sql.exec('reset role')
+  const result = await sql.query<{r:{id:string}}>("select public.account_action($1::uuid,'preparePlayer',$2::jsonb) r", [admin, JSON.stringify({email,name:'Player',pitcherId:pid})])
+  const id = result.rows[0].r.id
+  await sql.query('insert into auth.users(id,email) values($1,$2)', [id,email])
+  return id
+}
+const goalInput = (teamId: string | null, pitcherId: string | null, scope = 'team', extra = {}) => ({ id:crypto.randomUUID(),scope,teamId,pitcherId,metric:'strikePct',direction:'min',target:60,expectedRevision:0,...extra })
+
+describe('player accounts and goal authorization against PostgreSQL', () => {
+  it('provisions a unique pitcher link without coaching memberships, and keeps existing roles unchanged', async () => {
+    const tid=await team(), pid=await pitcher([tid]), player=await playerAccount(pid)
+    await login(player)
+    const data=await rpc<any>('get_workspace')
+    expect(data.coaches.find((c:any) => c.id===player)).toMatchObject({role:'player',pitcherId:pid})
+    expect(data.teamCoaches.some((m:any) => m.coachId===player)).toBe(false)
+    expect(data.teams.map((t:any) => t.id)).toEqual([tid])
+    await sql.exec('reset role')
+    await expect(sql.query("select public.account_action($1::uuid,'preparePlayer',$2::jsonb)",[admin,JSON.stringify({email:'another@example.com',name:'Other',pitcherId:pid})])).rejects.toThrow()
+    await expect(sql.query("select public.account_action($1::uuid,'prepare',$2::jsonb)",[admin,JSON.stringify({email:'player@example.com',name:'Player'})])).rejects.toThrow('player account')
+    await expect(sql.query("select public.account_action($1::uuid,'update',$2::jsonb)",[admin,JSON.stringify({id:player,active:true,pitcherId:pid,teamIds:[tid]})])).rejects.toThrow('coaching assignments')
+    expect((await sql.query<{role:string}>('select role from public.coaches where id=$1',[a])).rows[0].role).toBe('coach')
+  })
+  it('allows coaches to manage only their teams and players to manage only their own personal goals', async () => {
+    const tid=await team(), pid=await pitcher([tid]), other=await pitcher([tid])
+    const staff=goalInput(tid,null), coach=goalInput(tid,pid,'coach')
+    const acknowledged=await rpc<any>('manage','saveGoal',staff)
+    expect(acknowledged).toMatchObject({id:staff.id,target:60,revision:1,updatedBy:a})
+    await rpc('manage','saveGoal',coach)
+    await expect(rpc('manage','saveGoal',goalInput(null,pid,'personal'))).rejects.toThrow('linked player')
+    await login(b)
+    await expect(rpc('manage','saveGoal',{...staff,expectedRevision:1})).rejects.toThrow('access denied')
+    await expect(rpc('manage','deleteGoal',{id:staff.id,expectedRevision:1})).rejects.toThrow('access denied')
+    const player=await playerAccount(pid); await login(player)
+    const personal=goalInput(null,pid,'personal',{target:50,updatedBy:a})
+    await rpc('manage','saveGoal',personal) // Less demanding personal goals are allowed.
+    expect((await rpc<any>('get_workspace')).goals.find((g:any) => g.id===personal.id)).toMatchObject({updatedBy:player,target:50,revision:1})
+    await expect(rpc('manage','saveGoal',goalInput(null,other,'personal'))).rejects.toThrow('linked player')
+    await expect(rpc('manage','saveGoal',goalInput(tid,other,'coach'))).rejects.toThrow('access denied')
+    await expect(rpc('manage','saveGoal',{...staff,expectedRevision:1})).rejects.toThrow('access denied')
+    await expect(rpc('manage','deleteGoal',{id:staff.id,expectedRevision:1})).rejects.toThrow('access denied')
+    await rpc('manage','deleteGoal',{id:personal.id,expectedRevision:1})
+    expect((await rpc<any>('get_workspace')).goals).toHaveLength(2)
+  })
+  it('blocks team recording, imports, roster changes, restore and invitation acceptance for players, including forged identities', async () => {
+    const tid=await team(),pid=await pitcher([tid]),operation=(await operations(pid,tid)).at(-1)!
+    const iid=await invite(tid,'player@example.com'),player=await playerAccount(pid)
+    await login(player)
+    for (const [action,input] of [
+      ['saveTeam',{id:crypto.randomUUID(),name:'Forged'}],['savePitcher',{id:pid,name:'Forged',jersey:'',teamIds:[tid]}],
+      ['setPitcher',{teamId:tid,pitcherId:pid,active:false}],['acceptInvitation',{id:iid,teamId:tid}],
+      ['importGameChanger',{teamId:tid}],['restore',{backup:{version:5},operationId:crypto.randomUUID()}],
+      ['archiveRecord',{kind:'team',id:tid,archived:true}],
+    ] as const) await expect(rpc('manage',action,input)).rejects.toThrow()
+    await expect(rpc('upload_practice',{...operation,session:{...operation.session,recorderId:player}})).rejects.toThrow(/cannot record/i)
+    await expect(sql.query('insert into public.team_coaches values($1,$2)',[tid,player])).rejects.toThrow('permission denied')
+    await expect(sql.query('insert into public.player_accounts values($1,$2)',[player,pid])).rejects.toThrow('permission denied')
+    await expect(sql.query("select public.account_action($1::uuid,'update',$2::jsonb)",[admin,JSON.stringify({id:player,active:true,teamIds:[tid]})])).rejects.toThrow('permission denied')
+  })
+  it('allows players to upload their own independent practices while preserving other-player and recorder privacy', async () => {
+    const tid=await team(),pid=await pitcher([tid]),other=await pitcher([tid]),player=await playerAccount(pid)
+    const own=(await operations(pid,null,player,true)).at(-1)!
+    await login(player)
+    await rpc('upload_practice',{...own,expectedRevision:0})
+    expect((await rpc<any>('get_workspace')).sessions.map((s:any) => s.id)).toEqual([own.sessionId])
+    const forged=(await operations(other,null,player,true)).at(-1)!
+    await expect(rpc('upload_practice',{...forged,expectedRevision:0})).rejects.toThrow('other-player')
+    await login(a)
+    expect((await rpc<any>('get_workspace')).sessions).toEqual([])
+    expect((await sql.query('select id from public.practices')).rows).toEqual([])
+  })
+  it('limits workspace and direct table reads to shared teams; roster removal and suspension revoke access', async () => {
+    const tid=await team(),pid=await pitcher([tid]),mate=await pitcher([tid])
+    const practice=(await operations(mate,tid)).at(-1)!; await rpc('upload_practice',{...practice,expectedRevision:0})
+    const independent=(await operations(pid,null)).at(-1)!; await rpc('upload_practice',{...independent,expectedRevision:0})
+    const staff=goalInput(tid,null); await rpc('manage','saveGoal',staff)
+    await login(b); const privateTeam=await team('Private'),privatePid=await pitcher([privateTeam])
+    await rpc('manage','saveGoal',goalInput(privateTeam,null))
+    const player=await playerAccount(pid);await login(player)
+    let data=await rpc<any>('get_workspace')
+    expect(data.teams.map((t:any) => t.id)).toEqual([tid])
+    expect(data.sessions.map((s:any) => s.id)).toEqual([practice.sessionId])
+    expect(data.pitchers.some((p:any) => p.id===privatePid)).toBe(false)
+    expect((await sql.query('select id from public.goals')).rows).toHaveLength(1)
+    expect((await sql.query('select id from public.practices')).rows).toHaveLength(1)
+    await login(a);await rpc('manage','setPitcher',{teamId:tid,pitcherId:pid,active:false})
+    await login(player);data=await rpc<any>('get_workspace')
+    expect(data.teams).toEqual([]);expect(data.goals).toEqual([]);expect(data.sessions).toEqual([])
+    await sql.exec('reset role');await sql.query('update public.coaches set active=false where id=$1',[player])
+    await login(player);expect((await rpc<any>('get_workspace')).pitchers).toEqual([])
+    await expect(rpc('manage','saveGoal',goalInput(null,pid,'personal'))).rejects.toThrow('Active account')
+  })
+  it('shares personal goals with teammates and assigned coaches, without sharing the player’s other team targets', async () => {
+    const tid=await team(),second=await team('Owls'),pid=await pitcher([tid,second]),mate=await pitcher([tid])
+    await rpc('manage','saveGoal',goalInput(second,pid,'coach'))
+    const player=await playerAccount(pid);await login(player)
+    const personal=goalInput(null,pid,'personal');await rpc('manage','saveGoal',personal)
+    expect((await rpc<any>('get_workspace')).teams).toHaveLength(2)
+    const teammate=await playerAccount(mate,'mate@example.com');await login(teammate)
+    const data=await rpc<any>('get_workspace')
+    expect(data.goals.map((g:any) => g.id)).toEqual([personal.id])
+    await login(a);expect((await rpc<any>('get_workspace')).goals).toHaveLength(2)
+  })
+  it('detects stale updates, duplicate targets, stale deletes and immutable goal identity', async () => {
+    const tid=await team(),g=goalInput(tid,null);await rpc('manage','saveGoal',g)
+    await expect(rpc('manage','saveGoal',{...g,id:crypto.randomUUID()})).rejects.toThrow('Refresh')
+    await rpc('manage','saveGoal',{...g,target:65,expectedRevision:1})
+    await expect(rpc('manage','saveGoal',{...g,target:70,expectedRevision:1})).rejects.toThrow('Refresh')
+    await expect(rpc('manage','deleteGoal',{id:g.id,expectedRevision:1})).rejects.toThrow('Refresh')
+    await expect(rpc('manage','saveGoal',{...g,metric:'walkPct',direction:'max',expectedRevision:2})).rejects.toThrow('identity')
+    await rpc('manage','deleteGoal',{id:g.id,expectedRevision:2})
+    expect((await rpc<any>('get_workspace')).goals).toEqual([])
+  })
+  it('validates targets and directions on the server, and keeps viewers read-only', async () => {
+    const tid=await team()
+    for (const bad of [{target:-1},{target:101},{target:'60'},{direction:'max'},{metric:'total',target:2.5},{scope:'personal'},{metric:'invented'}]) {
+      await expect(rpc('manage','saveGoal',goalInput(tid,null,'team',bad))).rejects.toThrow()
+    }
+    await rpc('manage','saveGoal',goalInput(tid,null))
+    await sql.exec(`reset role; update public.coaches set role='viewer' where id='${a}'`);await login(a)
+    expect((await rpc<any>('get_workspace')).goals).toHaveLength(1)
+    await expect(rpc('manage','saveGoal',goalInput(tid,null,'team',{metric:'total',direction:'max',target:100}))).rejects.toThrow('access denied')
+  })
+  it('lets admins relink, suspend and reactivate players without creating coach assignments', async () => {
+    const tid=await team(),pid=await pitcher([tid]),other=await pitcher([]),player=await playerAccount(pid)
+    const change=(active:boolean,pitcherId:string) => sql.query("select public.account_action($1::uuid,'update',$2::jsonb)",[admin,JSON.stringify({id:player,active,pitcherId,teamIds:[]})])
+    await change(false,other);await login(player)
+    expect((await rpc<any>('get_workspace')).teams).toEqual([])
+    await sql.exec('reset role');await change(true,other);await login(player)
+    const data=await rpc<any>('get_workspace')
+    expect(data.coaches.find((c:any) => c.id===player).pitcherId).toBe(other)
+    expect(data.pitchers.map((p:any) => p.id)).toEqual([other])
+    await expect(rpc('manage','saveGoal',goalInput(null,pid,'personal'))).rejects.toThrow('linked player')
+    await rpc('manage','saveGoal',goalInput(null,other,'personal'))
+  })
+  it('preserves goals through archive and removes them with permanent team or pitcher deletion', async () => {
+    const tid=await team(),pid=await pitcher([tid]),g=goalInput(tid,null)
+    await rpc('manage','saveGoal',g);await rpc('manage','archiveRecord',{kind:'team',id:tid,archived:true})
+    expect((await rpc<any>('get_workspace')).goals).toHaveLength(1)
+    await expect(rpc('manage','saveGoal',{...g,target:70,expectedRevision:1})).rejects.toThrow('Reactivate')
+    await rpc('manage','deleteRecord',{kind:'team',id:tid,confirmation:'Falcons'})
+    expect((await rpc<any>('get_workspace')).goals).toEqual([])
+    const player=await playerAccount(pid);await login(player);await rpc('manage','saveGoal',goalInput(null,pid,'personal'))
+    await login(a);await rpc('manage','deleteRecord',{kind:'pitcher',id:pid,confirmation:'Jordan'})
+    await sql.exec('reset role');expect((await sql.query('select * from public.player_accounts')).rows).toEqual([])
+  })
+  it('restores v5 goals with new references and no links; personal copies require a linked player', async () => {
+    const tid=await team(),pid=await pitcher([tid]),player=await playerAccount(pid)
+    await login(player);await rpc('manage','saveGoal',goalInput(null,pid,'personal'))
+    await login(a);await rpc('manage','saveGoal',goalInput(tid,null));await rpc('manage','saveGoal',goalInput(tid,pid,'coach'))
+    const data=await rpc<any>('get_workspace')
+    const input={operationId:crypto.randomUUID(),deviceId:device,backup:{...data,format:'pitchwork-backup',version:5}}
+    await rpc('manage','restore',input);await rpc('manage','restore',input)
+    const restored=await rpc<any>('get_workspace'),copies=restored.goals.filter((g:any) => !data.goals.some((old:any) => old.id===g.id))
+    expect(copies).toHaveLength(3)
+    expect(copies.every((g:any) => g.teamId!==tid && g.pitcherId!==pid && g.updatedBy===null)).toBe(true)
+    const personal=copies.find((g:any) => g.scope==='personal')
+    await expect(rpc('manage','saveGoal',{...personal,expectedRevision:1})).rejects.toThrow('linked player')
+    await sql.exec('reset role');expect((await sql.query('select * from public.player_accounts')).rows).toHaveLength(1)
+    const malformed=structuredClone(input);malformed.operationId=crypto.randomUUID();malformed.backup.goals[0].pitcherId=crypto.randomUUID()
+    await login(a);await expect(rpc('manage','restore',malformed)).rejects.toThrow('goal reference')
+    expect((await rpc<any>('get_workspace')).teams).toHaveLength(2)
+  })
+})
 
 describe('server team access and practice transactions', () => {
   it('creates a team with its coach, supports many memberships, and prevents duplicate assignments', async () => {

@@ -164,7 +164,7 @@ with sync_playwright() as pw:
     backup_path = artifacts / 'gc-roundtrip.backup.json'
     download.value.save_as(backup_path)
     backup = json.loads(backup_path.read_text(encoding='utf-8'))
-    assert backup['version'] == 4 and len(backup['gcSummaries']) == 1 and len(backup['gcMappings']) == 4
+    assert backup['version'] == 5 and len(backup['gcSummaries']) == 1 and len(backup['gcMappings']) == 4
     transfer = browser.new_context(viewport={'width': 390, 'height': 900})
     imported_backend = install(transfer, role='admin')
     imported_page = transfer.new_page(); imported_page.goto(BASE_URL); imported_page.wait_for_load_state('networkidle')

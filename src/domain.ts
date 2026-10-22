@@ -6,7 +6,8 @@ export const pitchLocationLabels: Record<PitchLocation, string> = {
 }
 export type Outcome = 'walk' | 'strikeout' | 'inPlay' | 'manual' | 'reset' | 'switch' | 'end'
 export interface Team { id: string; name: string; archived?: boolean; createdAt: string; updatedAt: string }
-export interface Coach { id: string; name: string; email: string; role: 'admin' | 'coach' | 'viewer'; active: boolean }
+export interface Coach { id: string; name: string; email: string; role: 'admin' | 'coach' | 'viewer' | 'player'; active: boolean; pitcherId?: string | null }
+export const isCoach = (account: Coach | undefined) => !!account?.active && (account.role === 'coach' || account.role === 'admin')
 export interface TeamPitcher { teamId: string; pitcherId: string; active: boolean }
 export interface TeamCoach { teamId: string; coachId: string }
 export interface Invitation { id: string; teamId: string; email: string; teamName: string; createdAt: string }

@@ -1,0 +1,28 @@
+.stat-goals { margin-top: .5rem; font-size: .8125rem; font-weight: 400; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.stat-goals:empty { display: none; }
+.goal-annotation { margin-top: .4rem; color: var(--muted, #52625b); }
+.goal-annotation[data-goal-met="true"] { color: #246048; }
+.goal-annotation[data-goal-met="false"] { color: #875224; }
+.goal-warning { display: block; color: #875224; margin: .4rem 0; font-size: .8125rem; }
+.goal-editor { margin-top: .5rem; text-align: left; }
+.goal-editor > summary { cursor: pointer; font-weight: 600; color: #246048; padding: .35rem 0; }
+.goal-help { margin: .4rem 0; color: #52625b; }
+.goal-form { display: flex; flex-direction: column; gap: .5rem; padding: .75rem 0; border-top: 1px solid #dce4dd; min-width: 0; }
+.goal-form label { display: flex; flex-direction: column; gap: .25rem; }
+.goal-form input, .goal-form select { width: 100%; min-width: 0; font-size: .875rem; }
+.goal-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.goal-actions button { font-size: .8125rem; padding: .55rem .7rem; }
+.gc-statistics .stat-value { font-size: 1rem; font-weight: 600; }
+@media (max-width: 700px) {
+  .gc-statistics .gc-table, .gc-statistics .gc-table caption, .gc-statistics .gc-table thead, .gc-statistics .gc-table tbody { display: block; width: 100%; }
+  .gc-statistics .gc-table tr { display: grid; grid-template-columns: 1.3fr repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+  .gc-statistics .gc-results-game tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .gc-statistics .gc-table th, .gc-statistics .gc-table td { border: 0; }
+  .gc-statistics .gc-table thead th { font-size: 10px; padding: 10px 2px; overflow-wrap: normal; }
+  .gc-statistics .gc-table tbody td:last-child { display: contents; }
+  .gc-statistics .gc-table tbody td:last-child > .stat-value { grid-column: 4; grid-row: 1; padding: 10px 6px; text-align: right; }
+  .gc-statistics .gc-results-game tbody td:last-child > .stat-value { grid-column: 2; }
+  .gc-statistics .gc-table tbody td:last-child > small { grid-column: 4; grid-row: 2; text-align: right; padding-right: 6px; }
+  .gc-statistics .gc-table td .stat-goals { grid-column: 1 / -1; margin: 0 6px 12px; text-align: left; }
+  .gc-statistics .gc-table td .stat-goals:empty { margin: 0; }
+}
