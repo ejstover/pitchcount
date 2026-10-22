@@ -2,14 +2,23 @@ import Dexie, { type Table } from 'dexie'
 import { createId as id } from './id'
 import type { Goal, GoalDraft } from './goals'
 import { isCoach } from './domain'
+import type { AchievementRecord, AchievementAward, RecordDraft, TeamChallenge } from './achievements/types'
+import { validateAchievementRecord, validateTarget } from './achievements/validation'
+interface ActivityOperation { id: string; record: AchievementRecord; expectedRevision: number; order?:number; deleted?: boolean; blocked?: string }
 import type { GCImport, GCMapping, GCSummary } from './gamechanger'
-import { validateBackup, type Backup } from './backup'
+import { projectedPracticeBackup, validateBackup, type Backup } from './backup'
 import { pitchLocations, project, type Appearance, type Pitcher, type PitchLocation, type PitchType, type Session, type SessionEvent, type Team, type Coach, type TeamCoach, type TeamPitcher, type Invitation } from './domain'
 
 import { CloudError, type Gateway, type Identity, type SavePitcher, type Snapshot, type Upload, type RemovalInput, type RemovalPreview, type RemovalKind } from './shared'
 export type { Snapshot } from './shared'
 
 export class PitchDatabase extends Dexie {
+  achievementRecords!: Table<AchievementRecord, string>
+  achievementAwards!: Table<AchievementAward, string>
+  activityOutbox!: Table<ActivityOperation, string>
+  teamChallenges!: Table<TeamChallenge & {id:string}, string>
+  achievementSessions!: Table<Session,string>
+  achievementEvents!: Table<SessionEvent,string>
   goals!: Table<Goal, string>
   gcSummaries!: Table<GCSummary, string>
   gcMappings!: Table<GCMapping, [string, string, string]>
@@ -44,6 +53,7 @@ export class PitchDatabase extends Dexie {
     })
     this.version(4).stores({ gcSummaries: 'id, teamId, [teamId+season]', gcMappings: '[teamId+season+sourceKey], pitcherId' })
     this.version(5).stores({ goals: 'id, teamId, pitcherId' })
+    this.version(6).stores({ achievementRecords: 'id, pitcherId, kind', achievementAwards: 'id, pitcherId, definitionId, status', activityOutbox: 'id, order', teamChallenges: 'id, teamId', achievementSessions:'id',achievementEvents:'id' })
   }
 }
 const now = () => new Date().toISOString()
@@ -56,6 +66,8 @@ export class Repository {
   private syncCompletedAt: number | null = null
   private retired = false
   syncMessage = ''
+  private achievementConfirmationError: string | undefined
+  private achievementEvaluation: Snapshot['achievementEvaluation']
   get syncState() { return { running: this.syncing !== null, startedAt: this.syncStartedAt, completedAt: this.syncCompletedAt } }
   constructor(public db: PitchDatabase, public identity: Identity = { coachId: 'local', deviceId: 'local' }, private gateway?: Gateway) {}
   subscribe(listener: (dirty: boolean) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
@@ -103,12 +115,19 @@ export class Repository {
       sessions: (await this.db.sessions.toArray()).map(s => ({...s, archived: s.archived ?? false})), appearances: await this.db.appearances.toArray(), events: await this.db.events.toArray(),
       gcSummaries: await this.db.gcSummaries.toArray(), gcMappings: await this.db.gcMappings.toArray(),
       goals: await this.db.goals.toArray(),
+      achievementRecords: await this.db.achievementRecords.toArray(), achievementAwards: await this.db.achievementAwards.toArray(), teamChallenges: await this.db.teamChallenges.toArray(),
+      achievementSessions:await this.db.achievementSessions.toArray(),achievementEvents:await this.db.achievementEvents.toArray(),
+      achievementConfirmationError:this.achievementConfirmationError,achievementEvaluation:this.achievementEvaluation,
     }))
   }
   exportBackup(): Promise<Backup> {
     return this.serial(async () => {
-      const { teams, pitchers, sessions, events, teamPitchers, gcSummaries, gcMappings, goals } = await this.snapshot()
-      return validateBackup({ format: 'pitchwork-backup', version: 5, exportedAt: now(), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings, goals })
+      const { teams, pitchers, sessions, events, teamPitchers, gcSummaries, gcMappings, goals, achievementRecords, achievementSessions, achievementEvents } = await this.snapshot()
+      for(const projection of achievementSessions??[])if(!sessions.some(s=>s.id===projection.id)){
+        const exported=projectedPracticeBackup(projection,achievementEvents??[])
+        sessions.push(exported.session);events.push(...exported.events)
+      }
+      return validateBackup({ format: 'pitchwork-backup', version: 5, exportedAt: now(), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings, goals, achievementRecords })
     })
   }
   restoreBackup(value: unknown, operationId = id()): Promise<void> {
@@ -133,6 +152,7 @@ export class Repository {
         await this.db.gcSummaries.bulkAdd(backup.gcSummaries)
         await this.db.gcMappings.bulkAdd(backup.gcMappings)
         await this.db.goals.bulkAdd(backup.goals)
+        await this.db.achievementRecords.bulkAdd(backup.achievementRecords??[])
         await this.db.appearances.bulkAdd(appearances)
       })
     })
@@ -151,6 +171,22 @@ export class Repository {
   async deleteGoal(goal: Goal): Promise<void> {
     await this.manage('deleteGoal', { id: goal.id, expectedRevision: goal.revision })
   }
+  saveAchievement(draft: RecordDraft, existing?: AchievementRecord, deleted = false): Promise<void> {
+    return this.serial(() => this.db.transaction('rw',this.db.tables,async () => {
+      validateAchievementRecord(draft)
+      const actor=await this.db.coaches.get(this.identity.coachId)
+      if (!actor?.active || actor.role!=='player' || !actor.pitcherId) throw new Error('A linked player account is required.')
+      const timestamp=now(), record={...draft,id:existing?.id ?? draft.id ?? id(),pitcherId:actor.pitcherId,revision:(existing?.revision ?? 0)+1,createdAt:existing?.createdAt ?? timestamp,updatedAt:timestamp} as AchievementRecord
+      if(existing && existing.pitcherId!==actor.pitcherId) throw new Error('This activity belongs to another player.')
+      if(deleted) await this.db.achievementRecords.delete(record.id);else await this.db.achievementRecords.put(record)
+      const order=((await this.db.activityOutbox.orderBy('order').last())?.order??0)+1
+      await this.db.activityOutbox.put({id:id(),record,expectedRevision:existing?.revision ?? 0,deleted,order})
+      Dexie.currentTransaction?.on('complete',()=>this.emit(true))
+    }))
+  }
+  async activityPending() { return this.db.activityOutbox.toArray() }
+  async discardActivityConflict(id: string) { const op=await this.db.activityOutbox.get(id);if(op)await this.db.activityOutbox.filter(o=>o.record.id===op.record.id).delete();await this.refresh();this.emit() }
+  async createChallenge(input: TeamChallenge) { await this.manage('saveTeamChallenge',{...input,id:id()}) }
   importGameChanger(input: GCImport): Promise<void> {
     return this.serial(async () => { await this.manage('importGameChanger', { ...input }) })
   }
@@ -233,19 +269,22 @@ export class Repository {
     await this.db.appearances.where('sessionId').equals(session.id).delete()
     await this.db.appearances.bulkPut(projection.appearances)
   }
-  private async append(session: Session, kind: SessionEvent['kind'], pitcherId: string, pitchType?: PitchType, pitchLocation?: PitchLocation) {
+  private async append(session: Session, kind: SessionEvent['kind'], pitcherId: string, pitchType?: PitchType, pitchLocation?: PitchLocation, intendedTarget?: PitchLocation, drillId?: string) {
     const events = await this.db.events.where('sessionId').equals(session.id).toArray()
     const current = project(session, events).current
     const event: SessionEvent = { id: id(), sessionId: session.id, pitcherId, appearanceId: current.id, sequence: session.nextSequence++, timestamp: now(),
       nextAppearanceId: id(), kind, voidedAt: null }
     if (pitchType !== undefined) event.pitchType = pitchType
     if (pitchLocation !== undefined) event.pitchLocation = pitchLocation
+    if (intendedTarget !== undefined) event.intendedTarget = intendedTarget
+    if (drillId !== undefined) event.drillId = drillId
     await this.db.events.add(event)
   }
-  act(sessionId: string, action: 'pitch' | 'next' | 'reset' | 'switch' | 'undo' | 'pause' | 'resume' | 'end', value?: string, pitchLocation?: PitchLocation): Promise<void> {
+  act(sessionId: string, action: 'pitch' | 'next' | 'reset' | 'switch' | 'undo' | 'pause' | 'resume' | 'end', value?: string, pitchLocation?: PitchLocation, intendedTarget?: PitchLocation, drillId?: string): Promise<void> {
     return this.serial(() => this.db.transaction('rw', this.db.tables, async () => {
       const actor=await this.db.coaches.get(this.identity.coachId)
       if(actor?.role!=='player') await this.requireCoach()
+      validateTarget(intendedTarget)
       if (pitchLocation !== undefined && (action !== 'pitch' || !pitchLocations.includes(pitchLocation))) throw new Error('Choose a valid location for a pitch.')
       const session = await this.db.sessions.get(sessionId)
       if (!session || session.status === 'ended') throw new Error('This session has ended.')
@@ -276,7 +315,7 @@ export class Repository {
         if (!session.pitcherIds.includes(pitcher.id)) session.pitcherIds.push(pitcher.id)
       } else {
         if (action === 'pitch' && !['ball', 'called', 'swinging', 'foul', 'inPlay'].includes(value ?? '')) throw new Error('Choose a valid pitch outcome.')
-        await this.append(session, action, session.selectedPitcherId, action === 'pitch' ? value as PitchType : undefined, pitchLocation)
+        await this.append(session, action, session.selectedPitcherId, action === 'pitch' ? value as PitchType : undefined, pitchLocation, intendedTarget, drillId)
       }
       session.updatedAt = now()
       await this.queueUpload(session)
@@ -300,7 +339,7 @@ export class Repository {
     })
     this.syncMessage = ''; this.emit()
   }
-  async hasPending() { return (await this.db.uploads.count()) > 0 }
+  async hasPending() { return (await this.db.uploads.count()) > 0 || (await this.db.activityOutbox.count()) > 0 }
   async clearCache() {
     this.retired = true
     await this.queue; await this.syncing
@@ -313,11 +352,12 @@ export class Repository {
     this.emit()
   }
   async exportRecovery() {
-    return { format: 'pitchwork-unsynced-recovery', version: 1, exportedAt: now(), operations: await this.db.uploads.toArray() }
+    return { format: 'pitchwork-unsynced-recovery', version: 1, exportedAt: now(), operations: await this.db.uploads.toArray(), activities: await this.db.activityOutbox.toArray() }
   }
   private async refresh() {
     if (!this.gateway || this.retired) return
     const remote = await this.gateway.workspace()
+    this.achievementConfirmationError=remote.achievementConfirmationError;this.achievementEvaluation=remote.achievementEvaluation
     await this.db.transaction('rw', this.db.tables, async () => {
       if (this.retired) return
       const pending = await this.db.uploads.toArray()
@@ -335,12 +375,18 @@ export class Repository {
       const sessions = [...remote.sessions.filter(s => !deleted.has(s.id) && !localIds.has(s.id) && !blockedIds.has(s.id)), ...local].map(s => ({...s, archived: remote.sessions.find(r => r.id === s.id)?.archived ?? s.archived ?? false}))
       const sessionIds = new Set(sessions.map(s => s.id))
       const source = [...remote.events.filter(e => !localIds.has(e.sessionId)), ...events].filter(e => sessionIds.has(e.sessionId))
-      for (const table of this.db.tables) if (table.name !== 'uploads' && table.name !== 'deletions') await table.clear()
+      const activityPending=await this.db.activityOutbox.toArray(), activityIds=new Set(activityPending.map(o=>o.record.id))
+      const localActivities=await this.db.achievementRecords.filter(r=>activityIds.has(r.id)).toArray()
+      for (const table of this.db.tables) if (!['uploads','deletions','activityOutbox'].includes(table.name)) await table.clear()
       await this.db.teams.bulkPut(remote.teams.map(t => ({...t, archived: t.archived ?? false}))); await this.db.pitchers.bulkPut(remote.pitchers)
       await this.db.coaches.bulkPut(remote.coaches); await this.db.teamCoaches.bulkPut(remote.teamCoaches)
       await this.db.teamPitchers.bulkPut(remote.teamPitchers); await this.db.invitations.bulkPut(remote.invitations)
       await this.db.gcSummaries.bulkPut(remote.gcSummaries ?? []); await this.db.gcMappings.bulkPut(remote.gcMappings ?? [])
       await this.db.goals.bulkPut(remote.goals ?? [])
+      await this.db.achievementRecords.bulkPut([...(remote.achievementRecords??[]).filter(r=>!activityIds.has(r.id)),...localActivities])
+      await this.db.achievementAwards.bulkPut(remote.achievementAwards??[])
+      await this.db.teamChallenges.bulkPut(remote.teamChallenges??[])
+      await this.db.achievementSessions.bulkPut(remote.achievementSessions??[]);await this.db.achievementEvents.bulkPut(remote.achievementEvents??[])
       await this.db.sessions.bulkPut(sessions); await this.db.events.bulkPut(source)
       await this.db.appearances.bulkPut(sessions.flatMap(s => project(s, source.filter(e => e.sessionId === s.id)).appearances))
     })
@@ -378,6 +424,13 @@ export class Repository {
   }
   private async performSync() {
     try {
+      const blockedActivities=new Set((await this.db.activityOutbox.toArray()).filter(o=>o.blocked).map(o=>o.record.id))
+      for(const op of (await this.db.activityOutbox.toArray()).sort((a,b)=>(a.order??0)-(b.order??0))) {
+        if(blockedActivities.has(op.record.id))continue
+        if(op.blocked) continue
+        try {await this.gateway!.manage('saveAchievementRecord',op as unknown as Record<string,unknown>);await this.db.activityOutbox.delete(op.id)}
+        catch(error) {if(error instanceof CloudError && (['42501','40001'].includes(error.code)||error.code.startsWith('22')||error.code.startsWith('23'))){await this.db.activityOutbox.update(op.id,{blocked:error.message});blockedActivities.add(op.record.id)}else throw error}
+      }
       const blocked = new Set((await this.db.uploads.toArray()).filter(o => o.blocked).map(o => o.sessionId))
       while (!this.retired) {
         const op = await this.db.transaction('rw', this.db.uploads, async () => {
@@ -398,6 +451,7 @@ export class Repository {
         }
       }
       await this.refresh()
+      if((await this.db.activityOutbox.toArray()).some(o=>o.blocked)) this.syncMessage='An activity changed on another device. Review activity sync in your player profile.'
       if (blocked.size) this.syncMessage = 'Some practices need attention. Export unsynced work in Settings.'
     } catch (error) {
       this.syncMessage = error instanceof Error ? error.message : 'Could not sync. Your saved pitches remain on this device.'

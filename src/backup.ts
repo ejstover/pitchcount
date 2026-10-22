@@ -1,6 +1,9 @@
 import { pitchLocations, project, type Pitcher, type Session, type SessionEvent, type Team, type TeamPitcher } from './domain'
 import { gcSeasonKey, validateGCSummary, type GCMapping, type GCSummary } from './gamechanger'
 import { validGoal, type Goal } from './goals'
+import type { AchievementRecord } from './achievements/types'
+import { validateAchievementRecord } from './achievements/validation'
+import { createId } from './id'
 
 export interface Backup {
   format: 'pitchwork-backup'
@@ -14,6 +17,7 @@ export interface Backup {
   gcSummaries: GCSummary[]
   gcMappings: GCMapping[]
   goals: Goal[]
+  achievementRecords?: AchievementRecord[]
 }
 type Row = Record<string, unknown>
 function fail(message: string): never { throw new Error(`Invalid backup: ${message}`) }
@@ -72,7 +76,7 @@ export function validateBackup(value: unknown): Backup {
     if (!Array.isArray(row.pitcherIds)) fail('session pitchers must be a list.')
     if (typeof row.revision !== 'number' || !Number.isSafeInteger(row.revision) || row.revision < 0) fail('invalid session revision.')
     if (row.recovered !== undefined && typeof row.recovered !== 'boolean') fail('invalid recovery flag.')
-    return { archived: archived(row), teamId: row.teamId === null ? null : text(row.teamId, 'practice team', true), recorderId: text(row.recorderId, 'recording coach', true), deviceId: text(row.deviceId, 'recording device', true), revision: row.revision, ...(row.recovered ? { recovered: true } : {}), id: text(row.id, 'session id', true), name: text(row.name, 'practice name'), notes: text(row.notes, 'notes'), startedAt: timestamp(row.startedAt, 'session start'), updatedAt: timestamp(row.updatedAt, 'session update'), endedAt: nullableTime(row.endedAt, 'session end'), status: choice(row.status, ['active', 'paused', 'ended'], 'session status'), initialPitcherId: text(row.initialPitcherId, 'initial pitcher', true), initialAppearanceId: text(row.initialAppearanceId, 'initial appearance', true), selectedPitcherId: text(row.selectedPitcherId, 'selected pitcher', true), pitcherIds: row.pitcherIds.map(id => text(id, 'participating pitcher', true)), nextSequence: positiveInteger(row.nextSequence, 'next event sequence') }
+    return { ...(row.originSessionId ? {originSessionId:text(row.originSessionId,'practice provenance',true)} : {}), archived: archived(row), teamId: row.teamId === null ? null : text(row.teamId, 'practice team', true), recorderId: text(row.recorderId, 'recording coach', true), deviceId: text(row.deviceId, 'recording device', true), revision: row.revision, ...(row.recovered ? { recovered: true } : {}), id: text(row.id, 'session id', true), name: text(row.name, 'practice name'), notes: text(row.notes, 'notes'), startedAt: timestamp(row.startedAt, 'session start'), updatedAt: timestamp(row.updatedAt, 'session update'), endedAt: nullableTime(row.endedAt, 'session end'), status: choice(row.status, ['active', 'paused', 'ended'], 'session status'), initialPitcherId: text(row.initialPitcherId, 'initial pitcher', true), initialAppearanceId: text(row.initialAppearanceId, 'initial appearance', true), selectedPitcherId: text(row.selectedPitcherId, 'selected pitcher', true), pitcherIds: row.pitcherIds.map(id => text(id, 'participating pitcher', true)), nextSequence: positiveInteger(row.nextSequence, 'next event sequence') }
   })
   const events = rows<SessionEvent>(root.events, 'events', row => {
     const kind = choice(row.kind, ['pitch', 'next', 'reset', 'switch', 'end'], 'event kind')
@@ -80,11 +84,19 @@ export function validateBackup(value: unknown): Backup {
     if (kind === 'pitch') {
       event.pitchType = choice(row.pitchType, ['ball', 'called', 'swinging', 'foul', 'inPlay'] as const, 'pitch outcome')
       if (row.pitchLocation !== undefined) event.pitchLocation = choice(row.pitchLocation, pitchLocations, 'pitch location')
+      if (row.intendedTarget !== undefined) event.intendedTarget = choice(row.intendedTarget,pitchLocations,'intended target')
+      if (row.drillId !== undefined) event.drillId=text(row.drillId,'drill reference',true)
     } else if (event.voidedAt !== null || row.pitchType !== undefined || row.pitchLocation !== undefined) fail('only pitch events can have pitch outcomes, locations, or be undone.')
     return event
   })
   const teamIds = unique(teams.map(t => t.id), 'teams')
   const pitcherIds = unique(pitchers.map(p => p.id), 'pitchers')
+  const achievementRecords=root.achievementRecords===undefined?[]:rows<AchievementRecord>(root.achievementRecords,'achievement activities',row=>{
+    try {validateAchievementRecord({...row})} catch {fail('invalid achievement activity.')}
+    if(!pitcherIds.has(String(row.pitcherId)))fail('activity references a missing pitcher.')
+    return {...row,id:text(row.id,'activity id',true),pitcherId:text(row.pitcherId,'activity pitcher',true),revision:positiveInteger(row.revision,'activity revision'),createdAt:timestamp(row.createdAt,'activity creation'),updatedAt:timestamp(row.updatedAt,'activity update')} as AchievementRecord
+  })
+  unique(achievementRecords.map(r=>r.id),'achievement activities')
   const gcSummaries = Number(root.version) >= 4 ? rows(root.gcSummaries, 'GameChanger summaries', validateGCSummary) : []
   const gcMappings = Number(root.version) >= 4 ? rows<GCMapping>(root.gcMappings, 'GameChanger mappings', row => ({ teamId: text(row.teamId, 'mapping team', true), season: text(row.season, 'mapping season', true), sourceKey: text(row.sourceKey, 'mapping source', true), pitcherId: text(row.pitcherId, 'mapping pitcher', true) })) : []
   const goals = root.version === 5 ? rows<Goal>(root.goals, 'goals', row => {
@@ -131,13 +143,24 @@ export function validateBackup(value: unknown): Backup {
     })
     if (projection.current.pitcherId !== session.selectedPitcherId) fail('selected pitcher disagrees with the session history.')
   }
-  return { format: 'pitchwork-backup', version: 5, exportedAt: timestamp(root.exportedAt, 'export time'), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings, goals }
+  return { format: 'pitchwork-backup', version: 5, exportedAt: timestamp(root.exportedAt, 'export time'), teams, teamPitchers, pitchers, sessions, events, gcSummaries, gcMappings, goals, achievementRecords }
 }
 
 export function parseBackup(json: string): Backup {
   let value: unknown
   try { value = JSON.parse(json) } catch { fail('the file is not valid JSON.') }
   return validateBackup(value)
+}
+
+/** Normalize a player-only history projection into replayable, read-only backup history. */
+export function projectedPracticeBackup(session:Session,events:SessionEvent[]) {
+  const s={...session}, source=events.filter(e=>e.sessionId===s.id).sort((a,b)=>a.sequence-b.sequence).map((e,i)=>({...e,sequence:i+1}))
+  if(s.status==='ended'&&source.at(-1)?.kind!=='end')source.push({id:createId(),sessionId:s.id,pitcherId:s.selectedPitcherId,appearanceId:s.initialAppearanceId,nextAppearanceId:createId(),sequence:source.length+1,timestamp:s.endedAt!,kind:'end',voidedAt:null})
+  const reserved=new Set([s.initialAppearanceId])
+  for(const e of source){if(e.voidedAt&&!reserved.has(e.appearanceId))e.appearanceId=s.initialAppearanceId;reserved.add(e.nextAppearanceId)}
+  project(s,source,(current,event)=>{event.appearanceId=current.id})
+  s.nextSequence=source.length+1
+  return {session:s,events:source}
 }
 export function backupTotals(backup: Backup) {
   return { pitchers: backup.pitchers.length, sessions: backup.sessions.length, pitches: backup.events.filter(e => e.kind === 'pitch' && !e.voidedAt).length, gcSummaries: backup.gcSummaries.length }

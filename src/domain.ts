@@ -6,7 +6,7 @@ export const pitchLocationLabels: Record<PitchLocation, string> = {
 }
 export type Outcome = 'walk' | 'strikeout' | 'inPlay' | 'manual' | 'reset' | 'switch' | 'end'
 export interface Team { id: string; name: string; archived?: boolean; createdAt: string; updatedAt: string }
-export interface Coach { id: string; name: string; email: string; role: 'admin' | 'coach' | 'viewer' | 'player'; active: boolean; pitcherId?: string | null }
+export interface Coach { id: string; name: string; email: string; role: 'admin' | 'coach' | 'viewer' | 'player'; active: boolean; pitcherId?: string | null; username?: string | null }
 export const isCoach = (account: Coach | undefined) => !!account?.active && (account.role === 'coach' || account.role === 'admin')
 export interface TeamPitcher { teamId: string; pitcherId: string; active: boolean }
 export interface TeamCoach { teamId: string; coachId: string }
@@ -16,6 +16,7 @@ export interface Pitcher {
   archived: boolean; createdAt: string; updatedAt: string
 }
 export interface Session {
+  originSessionId?: string
   id: string; name: string; notes: string; startedAt: string; updatedAt: string
   endedAt: string | null; status: 'active' | 'paused' | 'ended'
   initialPitcherId: string; initialAppearanceId: string; selectedPitcherId: string
@@ -26,6 +27,7 @@ export interface Session {
   archived?: boolean
 }
 export interface SessionEvent {
+  intendedTarget?: PitchLocation; drillId?: string
   id: string; sessionId: string; pitcherId: string; appearanceId: string
   sequence: number; timestamp: string; nextAppearanceId: string
   kind: 'pitch' | 'next' | 'reset' | 'switch' | 'end'

@@ -6,6 +6,7 @@ import { PasswordSetup } from './PasswordSetup'
 import { SupabaseGateway,getDeviceId } from './cloud'
 import { PitchDatabase,Repository } from './storage'
 import { usePwa } from './pwa'
+import { defaultProfile } from './achievements/types'
 type Access = {profile:AccountProfile;repository:Repository}
 
 export function AuthGate() {
@@ -36,6 +37,10 @@ export function AuthGate() {
     if (offline && !await repository.db.coaches.get(profile.id)) {repository.db.close();throw new Error('Connect once to download your teams before opening Pitchwork offline.')}
     if (!offline) {
       await repository.sync()
+      if(profile.role==='player' && profile.pitcherId && !(await repository.db.achievementRecords.where('kind').equals('profile').count())) {
+        await repository.saveAchievement({id:profile.pitcherId,kind:'profile',data:defaultProfile()})
+        await repository.sync()
+      }
       if (repository.syncMessage && !await repository.db.coaches.get(profile.id)) {repository.db.close();throw new Error(repository.syncMessage)}
     }
     if (!mounted.current || profile.id !== cachedSessionUserId()) {repository.db.close();return}

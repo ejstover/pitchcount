@@ -74,9 +74,16 @@ class Backend:
                 result = make_session(self.profile)
             else:
                 result, status = {'error_code': 'otp_expired', 'msg': 'Token has expired or is invalid'}, 403
+        elif '/functions/v1/achievements' in req.url:
+            result = {}
         elif '/functions/v1/accounts' in req.url:
             action = payload['action']
-            if action == 'request':
+            if action == 'player_login':
+                if payload.get('username') == self.profile.get('username') and payload.get('password') == PASSWORD:
+                    result = make_session(self.profile)
+                else:
+                    result, status = {'error': 'Could not sign in. Check your username and password.'}, 401
+            elif action == 'request':
                 self.requests.append({'id': str(uuid.uuid4()), 'name': payload['name'], 'email': payload['email'], 'requested_team': payload['requestedTeam'], 'status': 'pending'})
                 result = {'message': 'Request received.'}
             elif not self.profile['active']:
@@ -88,7 +95,7 @@ class Backend:
             elif action in ('create', 'update'):
                 account_id = payload.get('id') or str(uuid.uuid4())
                 if action == 'create':
-                    self.data['coaches'].append({'id': account_id, 'name': payload['name'], 'email': payload['email'], 'role': payload.get('role', 'coach'), 'active': True, 'pitcherId': payload.get('pitcherId')})
+                    self.data['coaches'].append({'id': account_id, 'name': payload['name'], 'email': payload['email'], 'role': payload.get('role', 'coach'), 'active': True, 'pitcherId': payload.get('pitcherId'), 'username': payload.get('username')})
                 for account in self.data['coaches']:
                     if account['id'] == account_id:
                         account['active'] = payload['active']
@@ -132,6 +139,19 @@ class Backend:
             stamp = '2026-10-19T12:00:00.000Z'
             if action in ('removalPreview', 'archiveRecord', 'deleteRecord'):
                 result, status = self.removal(action, item)
+            elif action == 'saveAchievementRecord':
+                entries = self.data.setdefault('achievementRecords', [])
+                record = copy.deepcopy(item['record'])
+                prior = next((r for r in entries if r['id'] == record['id']), None)
+                if item['id'] in self.operations:
+                    result = {}
+                elif item['expectedRevision'] != (prior['revision'] if prior else 0):
+                    status, result = 409, {'message': 'Activity changed. Review server version.', 'code': '40001'}
+                else:
+                    self.data['achievementRecords'] = [r for r in entries if r['id'] != record['id']]
+                    if not item.get('deleted'):
+                        self.data['achievementRecords'].append(record)
+                    self.operations[item['id']] = True
             elif action in ('saveGoal', 'deleteGoal'):
                 self.goal_requests.append(copy.deepcopy(item))
                 goals = self.data.setdefault('goals', [])
