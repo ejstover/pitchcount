@@ -151,9 +151,10 @@ with sync_playwright() as pw:
     editor.get_by_label('Email address', exact=True).fill('jordan@example.com')
     editor.get_by_label('Account type', exact=True).select_option('player')
     editor.get_by_label('Linked pitcher', exact=True).select_option(pitcher)
+    editor.get_by_label('Player username', exact=True).fill('jordan.player')
     expect(editor.get_by_text('Assigned teams', exact=True)).to_have_count(0)
     editor.get_by_role('button', name='Create account', exact=True).click()
-    expect(page.locator('.account-row').filter(has_text='jordan@example.com')).to_contain_text('Linked pitcher: Jordan')
+    expect(page.locator('.account-row').filter(has_text='jordan.player')).to_contain_text('Linked pitcher: Jordan')
     page.screenshot(path=str(ARTIFACTS / 'admin-player-account-390.png'), full_page=True)
     assert not errors, errors
     context.close(); browser.close()

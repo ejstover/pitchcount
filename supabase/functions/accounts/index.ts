@@ -22,6 +22,25 @@ Deno.serve(async req => {
     const raw = await req.text()
     if (raw.length > 20_000) return reply({error:'Request too large'},413)
     const body = JSON.parse(raw)
+    if(body.action==='player_login') {
+      const salt=Deno.env.get('REQUEST_RATE_SALT')
+      if(!salt)return reply({error:'Player sign-in is not configured.'},503)
+      const username=typeof body.username==='string'?body.username.trim().toLowerCase():''
+      const ip=req.headers.get('cf-connecting-ip')??req.headers.get('x-real-ip')??req.headers.get('x-forwarded-for')?.split(',')[0].trim()??'unknown'
+      for(const value of [`ip:${ip}`,`user:${username}`]) {
+        const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${salt}:${value}`))
+        const bucket=Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('')
+        const {error}=await service.rpc('player_login_limit',{p_bucket:bucket})
+        if(error)return reply({error:'Could not sign in. Try again later.'},429)
+      }
+      const failure=()=>reply({error:'Could not sign in. Check your username and password.'},401)
+      if(!/^[a-z0-9][a-z0-9_.-]{2,23}$/.test(username) || typeof body.password!=='string' || body.password.length>72)return failure()
+      const {data:target}=await service.from('coaches').select('email,active').eq('username',username).eq('role','player').maybeSingle()
+      const authClient=createClient(Deno.env.get('SUPABASE_URL')!,secretKeys.default??Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false,autoRefreshToken:false}})
+      const {data,error}=await authClient.auth.signInWithPassword({email:target?.email??'unknown@players.pitchwork.invalid',password:body.password})
+      if(error || !data.session || !target?.active)return failure()
+      return reply({access_token:data.session.access_token,refresh_token:data.session.refresh_token})
+    }
     if (body.action === 'request') {
       const request = accountRequest(body)
       const salt = Deno.env.get('REQUEST_RATE_SALT')
@@ -40,6 +59,28 @@ Deno.serve(async req => {
     if (body.action === 'profile') {
       const link = profile.role === 'player' ? await checked(service.from('player_accounts').select('pitcher_id').eq('account_id',profile.id).maybeSingle()) : null
       return reply({...profile,pitcherId:link?.pitcher_id ?? null})
+    }
+    if((body.action==='provision_player' || body.action==='create' && body.role==='player' && body.username) && ['admin','coach'].includes(profile.role)) {
+      const username=requiredText(body.username,24).toLowerCase()
+      const provision=await checked(service.rpc('prepare_username_player',{p_actor:profile.id,p_pitcher:uuid(body.pitcherId),p_username:username}))
+      const existing=await service.auth.admin.getUserById(provision.id)
+      if(!existing.data.user){const {error}=await service.auth.admin.createUser({id:provision.id,email:provision.email,email_confirm:true});if(error)throw new Error('Player setup failed. Retry with the same username.')}
+      await checked(service.from('coaches').update({username}).eq('id',provision.id))
+      const {data,error}=await service.auth.admin.generateLink({type:'recovery',email:provision.email})
+      if(error || !data.properties?.hashed_token)throw new Error('Could not create player setup link. Use password recovery.')
+      const link=new URL(appUrl);link.hash=new URLSearchParams({'password-setup':data.properties.hashed_token}).toString()
+      return reply({username,setupLink:link.toString()})
+    }
+    if(profile.role==='coach' && body.action==='reset_password') {
+      const link=await checked(service.from('player_accounts').select('pitcher_id').eq('account_id',uuid(body.id)).maybeSingle())
+      const pitcher=link && await checked(service.from('pitchers').select('owner_id').eq('id',link.pitcher_id).single())
+      if(pitcher?.owner_id!==profile.id)return reply({error:'Only the player owner or admin can recover this account.'},403)
+      const target=await checked(service.from('coaches').select('email,active').eq('id',body.id).single())
+      if(!target.active)return reply({error:'Ask the admin to reactivate this account.'},403)
+      const {data,error}=await service.auth.admin.generateLink({type:'recovery',email:target.email})
+      if(error || !data.properties?.hashed_token)throw new Error('Could not create recovery link')
+      const setup=new URL(appUrl);setup.hash=new URLSearchParams({'password-setup':data.properties.hashed_token}).toString()
+      return reply({setupLink:setup.toString()})
     }
     if (profile.role !== 'admin') return reply({error:'Only the admin can manage accounts.'},403)
     const action = (name:string,data:unknown) => checked(service.rpc('account_action',{p_actor:profile.id,p_action:name,p_data:data}))

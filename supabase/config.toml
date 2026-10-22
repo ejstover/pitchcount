@@ -24,3 +24,6 @@ uri = "pg-functions://postgres/public/before_user_created"
 [functions.accounts]
 # Public request form shares the function. All other actions verify getUser().
 verify_jwt = false
+
+[functions.achievements]
+verify_jwt = false

@@ -1,9 +1,12 @@
 import { GoalStat, type GoalContext } from './GoalStat'
 import { goalMetrics, type GoalMetric } from './goals'
 import { isCoach } from './domain'
+import { createId as achievementId } from './id'
+import { dateAt } from './achievements/calendar'
 import './teams.css'
+import './achievements/recording-accessibility.css'
 import { createId } from './id'
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { metrics, percent, pitchLabels, pitchLocations, pitchLocationLabels, project, type Appearance, type Metrics, type Pitcher, type PitchLocation, type PitchType, type Session } from './domain'
 import { type Repository, type Snapshot } from './storage'
 import { emptySnapshot, teamHasPitcher, type SavePitcher } from './shared'
@@ -21,7 +24,8 @@ import { PitchHeatMap } from './PitchHeatMap'
 import { StatisticsFilters, type StatisticsSource } from './StatisticsFilters'
 import { dateRangeLabel, resolveDateRange, selectStatistics, statisticsPitchers, type DateSelection, type LocationOutcome } from './statistics'
 
-type Page = 'Practice' | 'Teams' | 'Pitchers' | 'Statistics' | 'Sessions' | 'Settings'
+type Page = 'Practice' | 'Teams' | 'Pitchers' | 'Statistics' | 'Sessions' | 'Settings' | 'Awards'
+const PlayerAchievements=lazy(()=>import('./achievements/PlayerAchievements').then(m=>({default:m.PlayerAchievements})))
 type Job = { work: () => Promise<unknown>; done?: () => void; committed?: boolean }
 type SaveFailure = { message: string; retry: () => void; discard: () => void }
 const empty: Snapshot = emptySnapshot()
@@ -33,6 +37,7 @@ const time = (value: string) => new Date(value).toLocaleTimeString(undefined, { 
 
 function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
+    Awards: <><path d="M7 3h10v7a5 5 0 0 1-10 0zM7 5H3v3a5 5 0 0 0 5 5m9-8h4v3a5 5 0 0 1-5 5M12 15v5m-4 1h8" /></>,
     Practice: <><path d="m12 3 9 7-3 11H6L3 10Z" /><path d="M9 13h6M12 10v6" /></>,
     Pitchers: <><circle cx="9" cy="8" r="3" /><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M17 14a5 5 0 0 1 4 5v2" /></>,
     Statistics: <><path d="M4 20V10M10 20V4M16 20v-8M22 20H2" /></>,
@@ -104,10 +109,10 @@ function useWorkspace(repository: Repository) {
       setSyncActivity(repository.syncState)
       setSyncError(repository.syncMessage)
       if (dirty) { clearTimeout(timer); timer = setTimeout(() => void repository.sync(), 300) }
-      const [next, uploads] = await Promise.all([repository.snapshot(), repository.pendingUploads()])
+      const [next, uploads, activities] = await Promise.all([repository.snapshot(), repository.pendingUploads(), repository.activityPending()])
       if (!alive || version !== refreshVersion) return
       setData(next)
-      setSyncStatus(repository.syncMessage || uploads.some(o => o.blocked) ? 'Sync needs attention' : uploads.length ? 'Waiting to sync' : 'Synced')
+      setSyncStatus(repository.syncMessage || uploads.some(o => o.blocked) || activities.some(o=>o.blocked) ? 'Sync needs attention' : uploads.length || activities.length ? 'Waiting to sync' : 'Synced')
       setSyncError(repository.syncMessage)
     }
     const sync = () => { if (navigator.onLine) void repository.sync() }
@@ -170,6 +175,8 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
   const { data, ready, pending, error, syncStatus, syncError, syncActivity, syncSlow, run, retry, discard } = useWorkspace(repository)
   const canEdit = isCoach(coach)
   const canRecord = canEdit || coach.role === 'player' && coach.active && !!coach.pitcherId
+  const [intendedTarget,setIntendedTarget]=useState<PitchLocation|''>('')
+  const [targetDrill,setTargetDrill]=useState('')
   const [page, setPage] = useState<Page>(coach.role === 'player' ? 'Statistics' : sessionStorage.getItem('pitchwork-invitation') ? 'Teams' : 'Practice')
   const [pitcherForm, setPitcherForm] = useState<Pitcher | 'new' | null>(null)
   const [startOpen, setStartOpen] = useState(false)
@@ -204,6 +211,7 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
   const failure = error ? { message: error, retry, discard } : undefined
   const modalOpen = !!(removing || pitcherForm || startOpen || switchOpen || endOpen || resetOpen)
   const session = data.sessions.find(s => s.status !== 'ended' && repository.owns(s))
+  useEffect(()=>{const drill=data.achievementRecords?.find(r=>r.kind==='drill'&&r.data.sessionId===session?.id&&!r.data.complete);setTargetDrill(drill?.id??'');setIntendedTarget('')},[session?.id])
   const dirtyNotes = Object.entries(noteDrafts).some(([id, value]) => data.sessions.some(s => s.id === id && s.notes !== value))
   const updateAllowed = ready && canApplyUpdate(session?.status === 'active', pending, dirtyNotes, !!error, modalOpen || restorePreview || gcPreview)
   function setNote(id: string, value: string) { setNoteDrafts(previous => ({ ...previous, [id]: value })) }
@@ -237,10 +245,14 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
   const pitcherTeams = (id: string) => data.teamPitchers.filter(m => m.pitcherId === id && m.active).map(m => data.teams.find(t => t.id === m.teamId)?.name).filter(Boolean).join(' · ') || 'Independent'
   const teamName = (id: string | null) => data.teams.find(t => t.id === id)?.name ?? 'Independent'
   const act = (action: Parameters<typeof repository.act>[1], value?: string, done?: () => void) => {
-    if (session) run(() => repository.act(session.id, action, value), done)
+    if (session) run(async () => {
+      const drill=data.achievementRecords?.find(r=>r.id===targetDrill)
+      if(action==='end'&&drill?.kind==='drill')await repository.saveAchievement({kind:'drill',data:{...drill.data,endSequence:Math.max(drill.data.startSequence??1,session.nextSequence-1),complete:session.nextSequence>(drill.data.startSequence??1)}},drill,session.nextSequence<=(drill.data.startSequence??1))
+      await repository.act(session.id, action, value)
+    }, done)
   }
   const recordPitch = (type: PitchType, location: PitchLocation) => {
-    if (session) run(() => repository.act(session.id, 'pitch', type, location))
+    if (session) run(() => repository.act(session.id, 'pitch', type, location, intendedTarget || undefined, targetDrill || undefined))
   }
   const navigate = (next: Page) => { setPage(next); setDetailsId(null) }
   const allPitcherStats = (id: string) => metrics(data.appearances.filter(a => a.pitcherId === id))
@@ -266,7 +278,7 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
   return <div className={`app-shell ${page === 'Practice' && session ? 'is-practicing' : ''}`}>
     <header className="app-header">
       <a className="brand" href="#practice" onClick={() => navigate('Practice')} aria-label="Pitchwork home"><span className="brand-mark" aria-hidden="true">p<span>·</span></span><span>pitchwork</span></a>
-      <nav aria-label="Main navigation">{(['Practice', 'Pitchers', 'Statistics', 'Sessions', 'Settings'] as Page[]).map(item => <button key={item} aria-current={(page === item || (item === 'Pitchers' && page === 'Teams')) ? 'page' : undefined} className={(page === item || (item === 'Pitchers' && page === 'Teams')) ? 'nav-item selected' : 'nav-item'} onClick={() => navigate(item)}><Icon name={item} /><span>{item === 'Pitchers' ? 'Roster' : item}</span>{item === 'Practice' && session && <span className="nav-dot" />}</button>)}</nav>
+      <nav aria-label="Main navigation">{(['Practice', 'Pitchers', 'Statistics', 'Sessions', 'Awards', 'Settings'] as Page[]).map(item => <button key={item} aria-current={(page === item || (item === 'Pitchers' && page === 'Teams')) ? 'page' : undefined} className={(page === item || (item === 'Pitchers' && page === 'Teams')) ? 'nav-item selected' : 'nav-item'} onClick={() => navigate(item)}><Icon name={item} /><span>{item === 'Pitchers' ? 'Roster' : item}</span>{item === 'Practice' && session && <span className="nav-dot" />}</button>)}</nav>
       <button className="coach-menu" onClick={() => navigate('Settings')} aria-label={`Account settings for ${coach.name}`}><span className="coach-initials" aria-hidden="true">{coach.name.split(/\s+/).filter(Boolean).map(part => part[0]).slice(0, 2).join('')}</span><span className="coach-name">{coach.name}</span></button>
     </header>
     <div className="workspace">
@@ -275,7 +287,7 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
       {pwa.error && <div className="pwa-notice">{pwa.error}</div>}
       {pwa.updateReady && <div className="pwa-notice update-notice"><div><strong>An app update is ready.</strong><p>{updateAllowed ? 'Your records will be kept when the app reloads.' : 'Pause practice, finish saving, and close any open forms before updating.'}</p></div><button disabled={!updateAllowed} onClick={() => void pwa.update()}>Update app</button></div>}
       {!ready ? <main><div className="empty-card"><h1>Opening your dugout…</h1><p>Loading the roster and practice history saved on this device.</p></div></main> : <main>
-        <div className="page-heading"><div><h1>{page === 'Practice' ? 'Practice' : page === 'Teams' ? 'Teams' : page === 'Pitchers' ? 'Roster' : page === 'Statistics' ? 'Statistics' : page === 'Settings' ? 'Settings' : 'Practice history'}</h1><p>{page === 'Practice' ? 'Track pitches for a focused practice.' : page === 'Teams' ? 'Manage pitchers and coaches by team.' : page === 'Pitchers' ? 'Your pitchers and their practice history.' : page === 'Statistics' ? 'Review practice and game performance.' : page === 'Settings' ? 'Manage your account, backups, and offline access.' : 'Review past practices and pitcher progress.'}</p></div>
+        <div className="page-heading"><div><h1>{page === 'Practice' ? 'Practice' : page === 'Teams' ? 'Teams' : page === 'Pitchers' ? 'Roster' : page === 'Statistics' ? 'Statistics' : page === 'Settings' ? 'Settings' : page === 'Awards' ? 'Awards' : 'Practice history'}</h1><p>{page === 'Practice' ? 'Track pitches for a focused practice.' : page === 'Teams' ? 'Manage pitchers and coaches by team.' : page === 'Pitchers' ? 'Your pitchers and their practice history.' : page === 'Statistics' ? 'Review practice and game performance.' : page === 'Settings' ? 'Manage your account, backups, and offline access.' : page === 'Awards' ? 'Celebrate your progress, one patch at a time.' : 'Review past practices and pitcher progress.'}</p></div>
           <div className="heading-actions">
             <details key={page} className={`workspace-status ${error || syncError || (!syncActivity.running && syncStatus === 'Sync needs attention') ? 'needs-attention' : syncActivity.running || pending || dirtyNotes || syncStatus !== 'Synced' || !pwa.online ? 'waiting' : ''}`}>
               <summary aria-label={`${saveLabel}. Save and sync details`}><span className="status-dot" aria-hidden="true" /><span role="status" data-save-state={error ? 'error' : pending ? 'saving' : !ready ? 'opening' : 'saved'}>{saveLabel}</span><Icon name="arrow" size={16} /></summary>
@@ -297,7 +309,7 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
             <div className="pitcher-heading"><div className="avatar">{pitcher?.jersey || pitcher?.name.charAt(0).toUpperCase() || '?'}</div><div><span className="eyebrow">ON THE MOUND</span><h2>{pitcher?.name}</h2><p>{teamName(session.teamId)}{pitcher?.jersey ? ` · #${pitcher.jersey}` : ''}</p></div><button className="switch-button" disabled={frozen || coach.role === 'player'} onClick={() => setSwitchOpen(true)}>Change pitcher <Icon name="arrow" size={16} /></button></div>
             <div className="scoreboard" aria-live="polite" aria-atomic="true"><div className="count-block"><span className="score-label">BATTER COUNT</span><div className="count-numbers"><span aria-label={`${projection?.current.balls} balls`}>{projection?.current.balls}<small>BALLS</small></span><span className="count-divider">–</span><span aria-label={`${projection?.current.strikes} strikes`}>{projection?.current.strikes}<small>STRIKES</small></span></div></div><div className="score-side"><div><span className="score-label">PITCH COUNT</span><strong>{currentStats.total}</strong></div><div><span className="score-label">STRIKE %</span><strong>{percent(currentStats.strikePct)}</strong></div></div></div>
             {session.status === 'paused' && <div className="paused-message">Practice paused. Resume when you’re ready to throw.</div>}
-            <p className="recording-perspective">Pitcher’s view · Left / right looking toward home plate</p><div className="pitch-grid">{([
+            {coach.role === 'player' && <section className="target-drill-controls"><label>Intended target<select aria-label="Intended target" value={intendedTarget} onChange={e => setIntendedTarget(e.target.value as PitchLocation | '')} disabled={frozen}><option value="">No target drill</option>{pitchLocations.map(l => <option key={l} value={l}>{pitchLocationLabels[l]}</option>)}</select></label><button disabled={frozen || !intendedTarget || !!targetDrill} onClick={() => { const id=achievementId();run(() => repository.saveAchievement({id,kind:'drill',data:{date:dateAt(new Date(),(data.achievementRecords?.find(r=>r.kind==='profile')?.data as {timezone?:string}|undefined)?.timezone??Intl.DateTimeFormat().resolvedOptions().timeZone),type:'target',sessionId:session.id,startSequence:session.nextSequence,complete:false}}),()=>setTargetDrill(id)) }}>Start target drill</button><button disabled={frozen || !targetDrill} onClick={() => { const drill=data.achievementRecords?.find(r=>r.id===targetDrill);if(drill?.kind==='drill')run(()=>repository.saveAchievement({kind:'drill',data:{...drill.data,endSequence:session.nextSequence-1,complete:true}},drill),()=>{setTargetDrill('');setIntendedTarget('')}) }}>Finish target drill</button><p>Choose the intended region before each pitch. Complete your drill before ending the session.</p></section>}<p className="recording-perspective">Pitcher’s view · Left / right looking toward home plate</p><div className="pitch-grid">{([
               ['ball', 'BALL'], ['called', 'STRIKE'], ['foul', 'FOUL'], ['inPlay', 'IN PLAY'],
             ] as [PitchType, string][]).map(([type, label]) => <PitchTile key={type} type={type} label={label} disabled={frozen} record={recordPitch} />)}</div>
             <div className="swinging-row"><span>Missed the swing?</span><button disabled={frozen} className="text-button" onClick={() => act('pitch', 'swinging')}>Record swinging strike <Icon name="plus" size={16} /></button></div>
@@ -323,7 +335,8 @@ export function App({ repository, coach, onSignOut }: { repository: Repository; 
         </>}</>}
 
         {page === 'Sessions' && (selectedSession ? <><div className="session-removal-actions">{(canEdit || coach.role==='player' && repository.owns(selectedSession)) && <button disabled={removalLocked} onClick={() => setRemoving({kind:'session',id:selectedSession.id,name:selectedSession.name || 'Bullpen practice',archived:!!selectedSession.archived})}>Remove practice</button>}{selectedSession.archived && <span className="status-tag">Archived</span>}</div><button className="text-button back-link" onClick={() => setDetailsId(null)}>← All sessions</button><section className="card stats-overview"><div className="section-heading"><div><span className="eyebrow">{date(selectedSession.startedAt)} · {teamName(selectedSession.teamId)} · {time(selectedSession.startedAt)}</span><h2>{selectedSession.name || 'Bullpen practice'}</h2></div><span className={`status-tag ${selectedSession.status}`}>{selectedSession.status}</span></div><MetricGrid value={metrics(data.appearances.filter(a => a.sessionId === selectedSession.id))} />{selectedSession.status !== 'ended' && repository.owns(selectedSession) && <button className="primary" onClick={() => setPage('Practice')}>Return to practice <Icon name="arrow" /></button>}</section><h2 className="subheading">Pitchers in this session</h2>{selectedSession.pitcherIds.map(id => <section key={id} className="card session-pitcher"><h3>{data.pitchers.find(p => p.id === id)?.name}</h3><MetricGrid value={metrics(data.appearances.filter(a => a.sessionId === selectedSession.id && a.pitcherId === id))} compact /><PitchHeatMap embedded events={data.events.filter(e => e.sessionId === selectedSession.id && e.pitcherId === id)} /></section>)}<Notes key={selectedSession.id} session={selectedSession} draft={noteDrafts[selectedSession.id]} setDraft={value => setNote(selectedSession.id, value)} disabled={!!error || !canEdit || (!repository.owns(selectedSession) || !!selectedSession.archived)} save={notes => run(() => repository.saveNotes(selectedSession.id, notes))} /><section className="card history-log"><h2>Pitch history</h2><div className="table-scroll"><table><thead><tr><th>Time</th><th>Pitcher</th><th>Outcome</th><th>Location</th><th>Status</th></tr></thead><tbody>{data.events.filter(e => e.sessionId === selectedSession.id && e.kind === 'pitch').sort((a, b) => a.sequence - b.sequence).map(e => <tr key={e.id}><td>{time(e.timestamp)}</td><td>{data.pitchers.find(p => p.id === e.pitcherId)?.name}</td><td>{pitchLabels[e.pitchType!]}</td><td>{e.pitchLocation ? pitchLocationLabels[e.pitchLocation] : 'Not recorded'}</td><td>{e.voidedAt ? 'Undone' : 'Recorded'}</td></tr>)}</tbody></table></div></section><MetricDefinition /></> : <><div className="list-heading"><label className="field-label">Show practices<select aria-label="Filter practices by archive status" value={sessionFilter} onChange={e => setSessionFilter(e.target.value)}><option value="active">Active practices</option><option value="archived">Archived practices</option><option value="all">All practices</option></select></label><button className="primary" disabled={!!error || !canRecord} onClick={() => session ? setPage('Practice') : activePitchers.length ? setStartOpen(true) : setPitcherForm('new')}>{session ? 'Return to practice' : 'New session'}<Icon name="arrow" /></button></div><div className="session-list">{visibleSessions.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map(s => <SessionRow key={s.id} session={s} team={teamName(s.teamId)} appearances={data.appearances.filter(a => a.sessionId === s.id)} onClick={() => setDetailsId(s.id)} />)}</div>{data.sessions.length > 0 && !visibleSessions.length && <Empty title="No matching practices" text="Choose another archive filter to see your practice history." />}{!data.sessions.length && <Empty title="A clean practice notebook." text="Start a session to keep a record of every pitch, pitcher, and practice." />}</>)}
-        {page === 'Settings' && <><section aria-label="Account settings"><section className="card account-card"><div><span className="eyebrow">YOUR {coach.role === 'player' ? 'PLAYER' : 'COACH'} ACCOUNT</span><h2>{coach.name}</h2><p>{coach.email}</p></div><button disabled={pending > 0 || dirtyNotes || !!session || syncStatus !== 'Synced'} onClick={() => { void onSignOut().catch(cause => window.alert(cause instanceof Error ? cause.message : 'Could not sign out.')) }}>Sign out</button><p className="form-intro">Finish practice, save notes, and sync pending work before signing out.</p></section>{canEdit && <details className="card statistics-account-imports"><summary>GameChanger imports</summary><GameChangerImport data={data} repository={repository} disabled={pending > 0 || !!error || dirtyNotes || restorePreview} onPreview={setGCPreview} /></details>}</section>{coach.role === 'admin' && <AccountAdmin disabled={removalLocked} onPractice={openPractice} teams={data.teams} pitchers={data.pitchers} onChanged={() => { void repository.sync() }} />}<Settings repository={repository} canRestore={canEdit} disabled={pending > 0 || !!error || gcPreview} unsavedNotes={dirtyNotes} run={run} onPreview={setRestorePreview} onRestored={() => { setNoteDrafts({}); setDetailsId(null); setStatPitcher(''); setStatTeam(''); setTeamFilter(''); setScope('all') }} offlineReady={pwa.offlineReady} /></>}
+        {page === 'Awards' && <Suspense fallback={<p role="status">Opening your collection…</p>}><PlayerAchievements data={data} account={goalAccount} repository={repository} onPractice={() => navigate('Practice')} /></Suspense>}
+        {page === 'Settings' && <><section aria-label="Account settings"><section className="card account-card"><div><span className="eyebrow">YOUR {coach.role === 'player' ? 'PLAYER' : 'COACH'} ACCOUNT</span><h2>{coach.name}</h2><p>{coach.username || coach.email}</p></div><button disabled={pending > 0 || dirtyNotes || !!session || syncStatus !== 'Synced'} onClick={() => { void onSignOut().catch(cause => window.alert(cause instanceof Error ? cause.message : 'Could not sign out.')) }}>Sign out</button><p className="form-intro">Finish practice, save notes, and sync pending work before signing out.</p></section>{canEdit && <details className="card statistics-account-imports"><summary>GameChanger imports</summary><GameChangerImport data={data} repository={repository} disabled={pending > 0 || !!error || dirtyNotes || restorePreview} onPreview={setGCPreview} /></details>}</section>{coach.role === 'admin' && <AccountAdmin disabled={removalLocked} onPractice={openPractice} teams={data.teams} pitchers={data.pitchers} onChanged={() => { void repository.sync() }} />}<Settings repository={repository} canRestore={canEdit} disabled={pending > 0 || !!error || gcPreview} unsavedNotes={dirtyNotes} run={run} onPreview={setRestorePreview} onRestored={() => { setNoteDrafts({}); setDetailsId(null); setStatPitcher(''); setStatTeam(''); setTeamFilter(''); setScope('all') }} offlineReady={pwa.offlineReady} /></>}
       </main>}
     </div>
     {removing && <RemovalDialog target={removing} preview={input => repository.previewRemoval(input)} perform={async (input, permanent) => { await repository.removeRecord(input, permanent); run(async () => undefined) }} close={() => setRemoving(null)} onPractice={openPractice} disabled={removalLocked} />}

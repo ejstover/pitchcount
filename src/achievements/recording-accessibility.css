@@ -1,0 +1,11 @@
+/* Keep recording controls large enough for fast, repeated taps on a phone. */
+.app-shell.is-practicing button:not(.pitch-target),
+.app-shell.is-practicing select,
+.app-shell.is-practicing input,
+.app-shell.is-practicing .workspace-status summary { min-height: 48px; }
+@media(max-width:700px){
+  .app-shell.is-practicing .tracking-actions{
+    position:sticky;bottom:calc(72px + env(safe-area-inset-bottom));z-index:12;
+    background:#fff;box-shadow:0 -8px 14px #102c2510;padding-top:8px;
+  }
+}

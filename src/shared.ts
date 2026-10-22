@@ -1,6 +1,7 @@
 import type { Appearance, Coach, Invitation, Pitcher, Session, SessionEvent, Team, TeamCoach, TeamPitcher } from './domain'
 import type { GCMapping, GCSummary } from './gamechanger'
 import type { Goal } from './goals'
+import type { AchievementRecord, AchievementAward, TeamChallenge } from './achievements/types'
 
 export interface Snapshot {
   teams: Team[]; pitchers: Pitcher[]; coaches: Coach[]; teamPitchers: TeamPitcher[]; teamCoaches: TeamCoach[]
@@ -8,6 +9,11 @@ export interface Snapshot {
   deletions?: { kind: RemovalKind; id: string }[]
   gcSummaries?: GCSummary[]; gcMappings?: GCMapping[]
   goals?: Goal[]
+  achievementRecords?: AchievementRecord[]; achievementAwards?: AchievementAward[]
+  achievementSessions?: Session[]; achievementEvents?: SessionEvent[]
+  achievementConfirmationError?: string
+  achievementEvaluation?: {revision:number;processedRevision:number}
+  teamChallenges?: (TeamChallenge & { id: string })[]
 }
 export type RemovalKind = 'pitcher' | 'team' | 'session' | 'coach' | 'request'
 export interface RemovalTarget { kind: RemovalKind; id: string; name: string; archived: boolean }

@@ -5,6 +5,7 @@ Use the test-only VITE settings documented in auth_mock.py.
 import os
 import json
 import time
+import re
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 from auth_mock import install, URL, COACH_ID, TEAM_ID, PASSWORD
@@ -89,7 +90,7 @@ with sync_playwright() as p:
     if os.environ.get('PITCHWORK_PWA') == '1':
         page.goto(BASE)
         expect(page.get_by_role('navigation')).to_be_visible()
-        expect(page.get_by_text('Offline access', exact=False)).to_be_visible()
+    expect(page.get_by_text(re.compile(r'^Offline access.*showing records'))).to_be_visible()
     admin_context.set_offline(False)
     page.goto(BASE)
     page.wait_for_load_state('networkidle')

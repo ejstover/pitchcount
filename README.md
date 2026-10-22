@@ -199,3 +199,17 @@ npm run build
 The incremental `202610210001_removal.sql` migration adds archive metadata, permission-checked removal, and private deletion markers. Existing upload/restore receipts are reduced to hashes so permanent deletion does not leave historical content in receipts. Deleted IDs cannot be recreated by stale save requests or uploads. Rejected offline work stays available through recovery export. Account deletion removes application access before deleting the authentication user; if authentication cleanup fails, use **Finish account deletion** in account administration to retry.
 
 Backups export version 4 with team/practice archive state and GameChanger summaries; versions 1 and 2 still import with those records active, and version 3 preserves archive state. Import creates fresh IDs in the shared workspace. Previously exported backup files remain independent copies.
+
+## Player achievement collections
+
+Awards contains 400 collectible designs across 80 five-tier families, personal
+award goals, activity check-ins, practice labs, season scrapbooks, and private
+profiles with three pinned favorites. Players can sign in with a username and
+record their own independent practices; existing shared-team statistics and
+ongoing coaching goals remain available. Share cards contain generic award
+content only. Server confirmation, recovery, the migration chain, and the
+15-minute evaluation-worker setup are described in [the achievement guide](docs/ACHIEVEMENTS.md).
+
+Run `python tests/achievements_browser.py` against the mocked production PWA
+preview documented in that guide for mobile layouts, offline reopening, target
+drills and both PNG export sizes.

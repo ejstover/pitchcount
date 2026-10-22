@@ -18,7 +18,7 @@ export const configurationError = transportError || (!validConfiguration()
   ? 'Login needs configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to public project credentials, then rebuild Pitchwork. See docs/AUTH.md.' : '')
 export const authStorageKey = `pitchwork-auth:${url ?? 'unconfigured'}`
 export const supabase = configurationError ? null : createClient(url!,key!,{ auth:{ storageKey:authStorageKey,flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true } })
-export type AccountProfile = Coach
+export type AccountProfile = Coach & ({role:'player';pitcherId:string|null}|{role:'admin'|'coach'|'viewer'})
 export class AccountError extends Error {
   constructor(message: string,public status = 0,public code = '') { super(message) }
 }
@@ -39,7 +39,7 @@ export function cacheProfile(profile: AccountProfile | null) {
 export async function accountApi<T = unknown>(action: string,payload: Record<string,unknown> = {}): Promise<T> {
   if (!supabase) throw new AccountError(configurationError)
   const headers: Record<string,string> = { apikey:key!,'Content-Type':'application/json' }
-  if (action !== 'request') {
+  if (!['request','player_login'].includes(action)) {
     let timer: ReturnType<typeof setTimeout> | undefined
     const session = await Promise.race([supabase.auth.getSession(),new Promise<never>((_,reject) => {
       timer = setTimeout(() => reject(new AccountError('Could not renew your session. Sign in again when online.')),15000)
@@ -59,6 +59,12 @@ export const loadProfile = () => accountApi<AccountProfile>('profile')
 export async function signInWithPassword(email:string,password:string) {
   if (!supabase) throw new AccountError(configurationError)
   if (!navigator.onLine) throw new AccountError('Connect to the internet to sign in.')
+  if(!email.includes('@')) {
+    const session=await accountApi<{access_token:string;refresh_token:string}>('player_login',{username:email.trim().toLowerCase(),password})
+    const {error}=await supabase.auth.setSession(session)
+    if(error) throw new AccountError('Could not sign in. Check your username and password.')
+    return
+  }
   const {error} = await supabase.auth.signInWithPassword({email:accountEmail(email),password})
   if (error) throw new AccountError(error.status === 429 ? 'Too many sign-in attempts. Wait a little before retrying.' : 'Could not sign in. Check your email and password, or ask the admin to approve your account.')
 }
