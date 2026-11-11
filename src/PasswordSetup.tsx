@@ -1,10 +1,11 @@
+import { userMessage } from './user-message'
 import { useEffect,useState } from 'react'
 import { cachedSessionUserId,setAccountPassword } from './auth'
 export function PasswordSetup({initialToken,onComplete,onCancel}:{initialToken:string|null;onComplete:()=>void;onCancel:()=>void}) {
   const [token,setToken] = useState(initialToken)
   const [busy,setBusy] = useState(false),[error,setError] = useState('')
   useEffect(() => {history.replaceState(null,'',window.location.pathname)},[])
-  return <main className="account-gate card login-card"><span className="eyebrow">PITCHWORK / ACCOUNT ACCESS</span><h1>Choose your password.</h1><p>This private setup link lets you set or reset the password for your approved account. Use at least 15 characters.</p>{error && <p role="alert" className="settings-notice error-text">{error}</p>}<form onSubmit={async event => {
+  return <main className="account-gate card login-card"><span className="eyebrow">PITCHWORK / ACCOUNT ACCESS</span><h1>Choose your password.</h1><p>This private setup link lets you set or reset the password for your approved account. Use at least 15 characters.</p>{error && <p role="alert" className="settings-notice error-text">{userMessage(error)}</p>}<form onSubmit={async event => {
     event.preventDefault();setBusy(true);setError('')
     const fields = new FormData(event.currentTarget),password = String(fields.get('password'))
     try {

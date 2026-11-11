@@ -105,8 +105,8 @@ export function evaluateAchievements(input: Pick<Snapshot, 'sessions'|'events'> 
     const scheduled=unique(plans.filter(r=>r.data.activity==='practice' && r.data.date>=b.start && r.data.date<=b.end && dateAt(r.createdAt,profile.timezone)<=r.data.date).map(r=>r.data.date))
     const done=scheduled.filter(date=>ps.some(p=>p.date===date)).length
     emit(b.scope==='week'?13:14,percent(done,scheduled.length),b.start,scheduled,closed && scheduled.length>0)
-    emit(b.scope==='week'?18:19,m.strikePct,b.start,evidence,closed && m.total>=(b.scope==='week'?25:50),seasonAt(b.start)?.id,undefined,'Needs enough pitches and a closed window')
-    emit(b.scope==='week'?22:23,m.firstPitchPct,b.start,evidence,closed && m.batters>=(b.scope==='week'?10:20),seasonAt(b.start)?.id,undefined,'Needs enough batters and a closed window')
+    emit(b.scope==='week'?18:19,m.strikePct,b.start,evidence,closed && m.total>=(b.scope==='week'?25:50),seasonAt(b.start)?.id,undefined,'Record enough pitches, then wait for the week or month to end')
+    emit(b.scope==='week'?22:23,m.firstPitchPct,b.start,evidence,closed && m.batters>=(b.scope==='week'?10:20),seasonAt(b.start)?.id,undefined,'Record enough batters, then wait for the week or month to end')
     if (b.scope==='month') emit(26,m.completedWalk,b.start,evidence,closed && m.completed>=30,seasonAt(b.start)?.id)
   }
   for (const p of practices) {
@@ -125,7 +125,7 @@ export function evaluateAchievements(input: Pick<Snapshot, 'sessions'|'events'> 
     emit(29,best,p.id,[p.id],true,sid);emit(30,bestStarts,p.id,[p.id],true,sid)
   }
   career(27,all.firstPositive);career(28,all.strikeouts)
-  for (const t of targets) emit(31,percent(t.hits,t.events.length),t.id,[t.id],t.eligible,t.seasonId,undefined,'Minimum 10 fully located target attempts')
+  for (const t of targets) emit(31,percent(t.hits,t.events.length),t.id,[t.id],t.eligible,t.seasonId,undefined,'Record at least 10 target pitches with both an intended target and a pitch location')
   career(32,targets.filter(t=>t.eligible).reduce((n,t)=>n+t.hits,0),targets.filter(t=>t.eligible).map(t=>t.id))
   for (const s of seasons) {
     const ps=inRange(s.data.start,s.data.end), m=totals(ps), ids=ps.map(p=>p.id), closed=s.data.end<today

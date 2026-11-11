@@ -1,3 +1,4 @@
+import { userMessage } from './user-message'
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { datePresets, dateRangeLabel, validCustomRange, type DateRange, type DateSelection } from './statistics'
 import './statistics.css'
@@ -25,7 +26,7 @@ export function StatisticsDateFilter({ value, range, onChange, compact = false, 
         setError(''); onChange({ preset: 'custom', start, end })
       }}><label>Start date<input type="date" required value={start} aria-invalid={!!error} aria-describedby={error ? errorId : undefined} onChange={event => setStart(event.target.value)} /></label><label>End date<input type="date" required value={end} aria-invalid={!!error} aria-describedby={error ? errorId : undefined} onChange={event => setEnd(event.target.value)} /></label><button type="submit">Apply</button></form>}
     </div>
-    {error && <p id={errorId} role="alert" className="date-range-error">{error}</p>}
+    {error && <p id={errorId} role="alert" className="date-range-error">{userMessage(error)}</p>}
     {!compact && <p className="statistics-date-summary" aria-live="polite"><strong>{dateRangeLabel(range)}</strong> · Based on practice start dates, in your local time.</p>}
   </div>
 }

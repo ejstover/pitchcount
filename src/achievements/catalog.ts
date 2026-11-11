@@ -23,11 +23,11 @@ export const families: Family[] = [
   ['Strike Climber', gain, 'Improve strikes by {n} percentage points', 'season'], ['First-Pitch Climber', gain, 'Improve first-pitch strikes by {n} points', 'season'],
   ['Walk Turnaround', gain, 'Reduce completed-batter walks by {n} points', 'season'], ['Target Climber', gain, 'Improve target matches by {n} points', 'season'],
   ['Steady Floor', [1,2,3,4,5], 'Finish {n} eligible practices in a row two points above baseline', 'season'], ['Level Up', gain, 'Raise your original strike goal by {n} points and meet it', 'season'],
-  ['Personal-Best Parade', [1,3,5,10,20], 'Set {n} qualifying personal strike records'], ['Back on My Plan', years, 'Resume and complete the next goal window {n} times'],
-  ['My Strike Goal', windows, 'Meet your strike goal in {n} windows'], ['My First-Pitch Goal', windows, 'Meet your first-pitch goal in {n} windows'],
-  ['My Control Goal', windows, 'Meet your completed-batter walk goal in {n} windows'], ['My Target Goal', windows, 'Meet your target goal in {n} windows'],
-  ['My Practice Goal', windows, 'Meet your practice goal in {n} windows'], ['My Habit Goal', windows, 'Meet your habit goal in {n} windows'],
-  ['My Reflection Goal', windows, 'Meet your reflection goal in {n} windows'], ['Goal Combo', windows, 'Meet two different goal types in one window {n} times'],
+  ['Personal-Best Parade', [1,3,5,10,20], 'Set {n} qualifying personal strike records'], ['Back on My Plan', years, 'Resume and complete the next goal period {n} times'],
+  ['My Strike Goal', windows, 'Meet your strike goal in {n} goal periods'], ['My First-Pitch Goal', windows, 'Meet your first-pitch goal in {n} goal periods'],
+  ['My Control Goal', windows, 'Meet your completed-batter walk goal in {n} goal periods'], ['My Target Goal', windows, 'Meet your target goal in {n} goal periods'],
+  ['My Practice Goal', windows, 'Meet your practice goal in {n} goal periods'], ['My Habit Goal', windows, 'Meet your habit goal in {n} goal periods'],
+  ['My Reflection Goal', windows, 'Meet your reflection goal in {n} goal periods'], ['Goal Combo', windows, 'Meet two different goal types in one goal period {n} times'],
   ['Target Lab', count, 'Complete {n} intended-target drills'], ['First-Pitch Lab', count, 'Complete {n} first-pitch focus drills'],
   ['Count Lab', count, 'Complete {n} count-scenario rehearsals'], ['Balance Lab', count, 'Complete {n} balance-focus drills'],
   ['Finish Lab', count, 'Complete {n} finish-position drills'], ['Ready Position Lab', count, 'Complete {n} fielding-ready drills'],
@@ -48,7 +48,7 @@ export const families: Family[] = [
 export const catalog: AchievementDefinition[] = families.flatMap(([name, thresholds, text, scope = 'career'], i) => thresholds.map((threshold, t) => {
   const id = String(i * 5 + t + 1).padStart(3, '0')
   let requirement=text.replace('{n}',threshold.toLocaleString('en-US'))
-  if(threshold===1)requirement=requirement.replace(/\b(practices|pitches|weeks|months|seasons|years|categories|achievements|strikeouts|matches|windows|drills|days|plans|times|scrapbooks|challenges)\b/g,word=>word==='categories'?'category':word.slice(0,-1))
+  if(threshold===1)requirement=requirement.replace(/\b(practices|pitches|weeks|months|seasons|years|categories|achievements|strikeouts|matches|windows|periods|drills|days|plans|times|scrapbooks|challenges)\b/g,word=>word==='categories'?'category':word.slice(0,-1))
   return { id, family: i + 1, name, title: id === '001' ? 'First Practice' : `${name} · ${threshold}${text.includes('{n}%') ? '%' : ''}`,
     category: Math.floor(i / 8), tier: t + 1, threshold, requirement, scope,
     evidence: i >= 48 && i !== 79 ? 'self-reported' : [6,7,10,11,12,13,14,15,37,39,40,41,42,43,44,45,46,47,79].includes(i) ? 'mixed' : 'recorded',

@@ -120,7 +120,7 @@ with sync_playwright() as pw:
     page.wait_for_function("document.querySelector('.workspace-status summary')?.textContent.includes('All changes synced')")
     assert any(r['kind'] == 'checkin' for r in backend.data['achievementRecords'])
     page.get_by_role('button', name='My award goals', exact=True).click()
-    page.get_by_label('Goal metric', exact=True).select_option('practice')
+    page.get_by_label('Goal measure', exact=True).select_option('practice')
     page.get_by_label('Target', exact=True).fill('1')
     page.get_by_role('button', name='Save my award goal', exact=True).click()
     expect(page.get_by_role('button', name='Pause goal', exact=True)).to_be_visible()
