@@ -18,6 +18,18 @@ defaults to their own Statistics; teammate statistics and ongoing coaching goals
 remain shared within active teams, as separately requested. Achievement activity,
 journals and awards remain private to the linked player.
 
+The artwork uses bold sports emblems, category colorways, and five rank marks.
+Only the linked player's confirmed awards appear in full color. Unearned,
+pending-confirmation, and withdrawn awards stay grayscale in the collection,
+recommendations, empty trophy case, and detail dialog. Color is accompanied by
+a written status, and locked awards remain enabled for touch and keyboard access.
+
+Tap any award to read its short explanation and exact tier requirement under
+"How to earn it." Tracking details are available in an optional disclosure.
+The dialog closes with its close button or Escape and returns focus to the award.
+Coach gallery items open labeled previews of the same explanations. Exported
+cards use the same artwork and remain limited to confirmed earned awards.
+
 Ongoing Statistics goals remain independent from dated achievement challenges.
 Achievement targets are versioned for weekly, monthly or seasonal windows. Edits
 start next window, pauses apply immediately, and resumed goals create a new
@@ -129,4 +141,6 @@ python tests/achievements_browser.py
 The browser fixture mocks service calls, while SQL permission tests run real
 PostgreSQL rules. Acceptance covers 320/390/768/1440 widths, all 400 designs, both
 PNG sizes, real service-worker offline reopening, goal entry and target recording.
+It also checks earned/locked rendering, pending and withdrawn states, player
+ownership, explanations, empty-state awards, coach previews, and keyboard focus.
 Physical iPhone sharing and Safari installation still require a device check.

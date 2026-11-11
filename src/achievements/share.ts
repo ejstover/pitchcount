@@ -9,15 +9,15 @@ export async function renderShareCard(def: AchievementDefinition, portrait=false
   const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Image export is unavailable on this device.')
   const c=shareCardContent(def), h=canvas.height
   ctx.fillStyle='#101c2c';ctx.fillRect(0,0,1080,h)
-  ctx.strokeStyle='#29404f';ctx.lineWidth=1
-  for(let x=-h;x<1080;x+=48){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x+h,h);ctx.stroke()}
-  ctx.strokeStyle='#5cffe0';ctx.lineWidth=3;ctx.strokeRect(35,35,1010,h-70)
+  ctx.strokeStyle='#1c2c40';ctx.lineWidth=1
+  for(let x=-h;x<1080;x+=120){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x+h,h);ctx.stroke()}
+  ctx.strokeStyle='#465264';ctx.lineWidth=2;ctx.strokeRect(35,35,1010,h-70)
   const url=URL.createObjectURL(new Blob([awardSvg(def)],{type:'image/svg+xml'}))
   try {
     const img=new Image();await new Promise<void>((resolve,reject)=>{img.onload=()=>resolve();img.onerror=()=>reject(new Error('Could not render award artwork.'));img.src=url})
     const y=portrait?340:90;ctx.drawImage(img,240,y,600,600)
-    ctx.textAlign='center';ctx.fillStyle='#5cffe0';ctx.font='700 22px sans-serif';ctx.fillText(c.brand,540,portrait?200:85)
-    ctx.fillStyle='#ff70b6';ctx.font='700 22px sans-serif';ctx.fillText(c.tier,540,y+640)
+    ctx.textAlign='center';ctx.fillStyle='#c5ed65';ctx.font='700 22px sans-serif';ctx.fillText(c.brand,540,portrait?200:85)
+    ctx.fillStyle='#c5ed65';ctx.font='700 22px sans-serif';ctx.fillText(c.tier,540,y+640)
     ctx.fillStyle='#ffffff';ctx.font='700 38px sans-serif'
     wrap(ctx,c.title,540,y+710,920,48)
     ctx.fillStyle='#c9d6e2';ctx.font='26px sans-serif';wrap(ctx,c.requirement,540,y+810,900,40)

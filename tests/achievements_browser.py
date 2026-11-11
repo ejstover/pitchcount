@@ -1,4 +1,4 @@
-"""Player clubhouse, offline activity, target recording and private PNG acceptance."""
+"""Award states, explanations, responsive clubhouse, offline activity, and PNGs."""
 import os
 import json
 import struct
@@ -21,7 +21,11 @@ with sync_playwright() as pw:
     backend.data.update(pitchers=[dict(id=p, name=name, jersey='', ownerId=COACH_ID, archived=False, createdAt=stamp, updatedAt=stamp) for p, name in [(player, 'Private Person Sentinel'), (mate, 'Teammate')]], teams=[dict(id=TEAM_ID, name='Private Team Sentinel', createdAt=stamp, updatedAt=stamp)], teamPitchers=[dict(teamId=TEAM_ID, pitcherId=p, active=True) for p in [player, mate]], teamCoaches=[], achievementRecords=[], achievementEvaluation=dict(revision=1, processedRevision=1))
     backend.data['sessions'] = [dict(id=sid, name='Private Session Sentinel', notes='Private Note Sentinel', startedAt=stamp, updatedAt=stamp, endedAt=stamp, status='ended', initialPitcherId=player, selectedPitcherId=player, pitcherIds=[player], initialAppearanceId=aid, nextSequence=3, teamId=None, recorderId=COACH_ID, deviceId=uid(), revision=1)]
     backend.data['events'] = [dict(id=uid(), sessionId=sid, pitcherId=player, appearanceId=aid, nextAppearanceId=uid(), sequence=i, timestamp=stamp, kind=kind, voidedAt=None, **({'pitchType': 'called', 'pitchLocation': 'middle'} if kind == 'pitch' else {})) for i, kind in [(1, 'pitch'), (2, 'end')]]
-    backend.data['achievementAwards'] = [dict(id=f'{player}:001:career', pitcherId=player, definitionId='001', period='career', earnedAt=stamp, status='qualified', actual=1, evidence=[sid], ruleVersion=1)]
+    backend.data['achievementAwards'] = [
+        dict(id=f'{player}:001:career', pitcherId=player, definitionId='001', period='career', earnedAt=stamp, status='qualified', actual=1, evidence=[sid], ruleVersion=1),
+        dict(id=f'{player}:003:career', pitcherId=player, definitionId='003', period='career', earnedAt=stamp, status='withdrawn', actual=0, evidence=[], ruleVersion=1, explanation='Practice records were corrected.'),
+        dict(id=f'{mate}:002:career', pitcherId=mate, definitionId='002', period='career', earnedAt=stamp, status='qualified', actual=5, evidence=[], ruleVersion=1),
+    ]
     page = context.new_page()
     page.set_default_timeout(10000)
     errors = []
@@ -39,15 +43,49 @@ with sync_playwright() as pw:
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), ('profile overflow', width, page.evaluate("[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(0,12).map(e=>[e.tagName,e.className,e.getBoundingClientRect().width])"))
     page.get_by_role('button', name='Collection', exact=True).click()
     expect(page.locator('.award-card')).to_have_count(400)
+    expect(page.locator('.award-card.earned')).to_have_count(1)
+    assert 'grayscale' not in page.locator('.award-card.earned .award-patch').evaluate('e => getComputedStyle(e).filter')
+    assert all('grayscale(1)' in f for f in page.locator('.award-card.unearned .award-patch').evaluate_all('els => els.map(e => getComputedStyle(e).filter)'))
     assert page.evaluate("(()=>{const ids=[...document.querySelectorAll('.award-patch svg defs [id]')].map(e=>e.id);return new Set(ids).size===ids.length})()")
     for width in [320, 390, 768, 1440]:
         page.set_viewport_size({'width': width, 'height': 1000})
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), ('collection overflow', width)
+        page.locator('.collection-intro').scroll_into_view_if_needed()
         page.screenshot(path=str(OUT / f'collection-{width}.png'), full_page=False)
+    # Locked, withdrawn, and locally qualified awards all remain gray and tappable.
+    for title, status in [('Practice Path · 5', 'Not earned yet'), ('Practice Path · 10', 'Not earned yet'), ('Weekly Regular · 1', 'Pending confirmation')]:
+        page.get_by_label('Search', exact=True).fill(title)
+        card = page.locator('.award-card').first
+        expect(card).to_be_enabled()
+        card.focus()
+        page.keyboard.press('Enter')
+        detail = page.get_by_role('dialog', name='Award details')
+        expect(detail.get_by_role('heading', name=title, exact=True)).to_be_visible()
+        expect(detail.locator('.award-detail-status')).to_have_text(status)
+        expect(detail.locator('#award-explanation')).not_to_be_empty()
+        expect(detail.get_by_text('HOW TO EARN IT', exact=True)).to_be_visible()
+        assert 'grayscale(1)' in detail.locator('.award-patch').evaluate('e => getComputedStyle(e).filter')
+        expect(detail.get_by_role('button', name='Download PNG')).to_have_count(0)
+        for width in [320, 390, 1440]:
+            page.set_viewport_size({'width': width, 'height': 1000})
+            assert detail.evaluate('e => e.scrollWidth <= e.clientWidth'), ('detail overflow', width, title)
+            if title == 'Practice Path · 5':
+                page.screenshot(path=str(OUT / f'locked-detail-{width}.png'))
+        page.keyboard.press('Escape')
+        expect(detail).not_to_be_visible()
+        expect(card).to_be_focused()
+    page.get_by_label('Status', exact=True).select_option('earned')
+    page.get_by_label('Search', exact=True).fill('')
+    expect(page.locator('.award-card')).to_have_count(1)
+    page.get_by_label('Status', exact=True).select_option('all')
     page.get_by_label('Search', exact=True).fill('First Practice')
     page.locator('.award-card').click()
     detail = page.get_by_role('dialog', name='Award details')
     expect(detail.get_by_role('heading', name='First Practice')).to_be_visible()
+    expect(detail.locator('.award-detail-status')).to_have_text('✓ Earned')
+    expect(detail.locator('#award-explanation')).to_have_text('Finish a recorded practice. Every completed session counts.')
+    assert 'grayscale' not in detail.locator('.award-patch').evaluate('e => getComputedStyle(e).filter')
+    page.screenshot(path=str(OUT / 'earned-detail-1440.png'))
     with page.expect_download() as download_info:
         detail.get_by_role('button', name='Download PNG', exact=True).click()
     download = download_info.value
@@ -115,6 +153,28 @@ with sync_playwright() as pw:
     expect(page.get_by_role('heading', name='Statistics', exact=True)).to_be_visible()
     page.get_by_role('button', name='Awards', exact=True).click()
     expect(page.get_by_role('heading', name='Your clubhouse')).to_be_visible()
+    # The very first gray award is also a real button with an explanation.
+    page.locator('.first-patch').click()
+    detail = page.get_by_role('dialog', name='Award details')
+    expect(detail.get_by_role('heading', name='First Practice')).to_be_visible()
+    expect(detail.locator('.award-detail-status')).to_have_text('Not earned yet')
+    assert 'grayscale(1)' in detail.locator('.award-patch').evaluate('e => getComputedStyle(e).filter')
+    page.keyboard.press('Escape')
+    page.locator('.award-suggestion').first.click()
+    expect(detail.locator('#award-explanation')).not_to_be_empty()
+    page.keyboard.press('Escape')
+    # Coach gallery awards expose the same explanations as player awards.
+    context.close()
+    context = browser.new_context()
+    backend = install(context, role='coach')
+    page = context.new_page(); page.on('pageerror', lambda error: errors.append(str(error)))
+    page.goto(BASE); page.wait_for_load_state('networkidle')
+    page.get_by_role('button', name='Awards', exact=True).click()
+    page.locator('.award-card').first.click()
+    detail = page.get_by_role('dialog', name='Award details')
+    expect(detail.locator('.award-detail-status')).to_have_text('Award preview')
+    expect(detail.locator('#award-preview-explanation')).not_to_be_empty()
+    page.keyboard.press('Escape')
     assert not errors, errors
     browser.close()
 print(json.dumps({'status': 'passed', 'widths': [320, 390, 768, 1440], 'designs': 400, 'png': ['1080x1080', '1080x1920'], 'offline_reopen': os.environ.get('PITCHWORK_PWA') == '1'}))
