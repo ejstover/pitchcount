@@ -1,3 +1,4 @@
+import { userMessage } from './user-message'
 import { useState } from 'react'
 import type { Coach } from './domain'
 import type { Snapshot } from './shared'
@@ -70,7 +71,7 @@ function GoalForm({ context, draft, existing }: { context: GoalContext; draft: G
     <label>Direction<select aria-label="Direction" value={direction} disabled={disabled || !!fixedDirection(draft.metric)} onChange={e => setDirection(e.target.value as GoalDirection)}><option value="min">At least</option><option value="max">At most</option></select></label>
     <label>Target<input type="number" min="0" max={draft.metric.endsWith('Pct') ? 100 : undefined} step={fixedDirection(draft.metric) ? 'any' : '1'} required value={target} disabled={disabled} onChange={e => setTarget(e.target.value)} /></label>
     {goalWarnings(value, context.data).map(w => <p className="goal-warning" role="status" key={w}>{w}</p>)}
-    {error && <p className="goal-warning" role="alert">{error}</p>}{message && <p role="status">{message}</p>}
+    {error && <p className="goal-warning" role="alert">{userMessage(error)}</p>}{message && <p role="status">{message}</p>}
     {!navigator.onLine && <p>Reconnect to edit goals.</p>}
     <div className="goal-actions"><button type="submit" disabled={disabled || !validGoal(value)}>{busy ? 'Saving…' : 'Save goal'}</button>{opened && <button type="button" disabled={disabled} onClick={() => void act(true)}>Remove goal</button>}{conflict && <button type="button" disabled={busy || !navigator.onLine} onClick={() => void refresh()}>Refresh goal</button>}</div>
   </form>

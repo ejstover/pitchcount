@@ -169,7 +169,7 @@ with sync_playwright() as pw:
     imported_backend = install(transfer, role='admin')
     imported_page = transfer.new_page(); imported_page.goto(BASE_URL); imported_page.wait_for_load_state('networkidle')
     imported_page.get_by_role('navigation').get_by_role('button', name='Settings', exact=True).click()
-    imported_page.get_by_label('Restore from a JSON backup').set_input_files(backup_path)
+    imported_page.get_by_label('Restore from a backup file').set_input_files(backup_path)
     imported_page.get_by_label('I understand this imports separate copies into my account.').check()
     imported_page.get_by_role('button', name='Import backup copies', exact=True).click()
     imported_page.get_by_text('GameChanger imports', exact=True).click()

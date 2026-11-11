@@ -1,3 +1,4 @@
+import { userMessage } from './user-message'
 import { isCoach } from './domain'
 import { useEffect, useState } from 'react'
 import { createId } from './id'
@@ -27,13 +28,13 @@ export function GameChangerImport({ data, repository, disabled, onPreview }: { d
       const players = parsed.players.flatMap(row => {
         const suggested = suggestGCMatch(row, teamId, season, data.pitchers, data.teamPitchers, data.gcMappings ?? [])
         let choice = choices[row.sourceKey] ?? suggested.pitcherId
-        if (!choice || !(confirmed[row.sourceKey] || suggested.remembered && choices[row.sourceKey] === undefined)) throw new Error(`Confirm a match, creation, or skip for ${row.name}.`)
+        if (!choice || !(confirmed[row.sourceKey] || suggested.remembered && choices[row.sourceKey] === undefined)) throw new Error(`Choose a roster pitcher, create a pitcher, or skip the entry for ${row.name}.`)
         if (choice === 'skip') return []
         if (choice === 'create') { choice = createId(); newPitchers.push({ id: choice, name: row.name, jersey: row.jersey }) }
         return [{ ...row, pitcherId: choice }]
       })
       if (!players.length) throw new Error('Include at least one pitcher.')
-      if (new Set(players.map(p => p.pitcherId)).size !== players.length) throw new Error('Each source player must map to a different pitcher.')
+      if (new Set(players.map(p => p.pitcherId)).size !== players.length) throw new Error('Match each imported player to a different pitcher on your roster.')
       setStaged({ teamId, season: season.trim(), coverageStart: start, coverageEnd: end, fileName, players, teamTotals: parsed.teamTotals, warnings: parsed.warnings, newPitchers, expectedRevision: existing?.revision ?? 0, expectedSummaryId: existing?.id ?? null, operationId: createId(), coverageConfirmed: true })
       setAttempted(false); setError('')
     } catch (cause) { setError((cause as Error).message) }
@@ -50,7 +51,7 @@ export function GameChangerImport({ data, repository, disabled, onPreview }: { d
   return <section className="card settings-card gc-import" aria-labelledby="gc-import-title">
     <span className="eyebrow">GAME RESULTS</span><h2 id="gc-import-title">Import GameChanger CSV</h2>
     <p>Keep one current pitching summary per team and season. A new export replaces that summary. Export all intended games through your cutoff date; GameChanger includes any filters you applied.</p>
-    <p className="settings-help">Summaries contain no game dates, pitch sequence, or locations. They support season comparisons, not daily workload or individual-game trends.</p>
+    <p className="settings-help">Use summaries to compare season totals. They do not include individual game dates or pitch locations, so you cannot use them to review a single game or daily workload.</p>
     {!navigator.onLine && <p className="settings-notice">Reconnect to import or remove GameChanger summaries. Saved summaries remain available offline.</p>}
     <label className="field-label">GameChanger CSV<input type="file" accept=".csv,text/csv" disabled={locked || !!staged} onChange={async e => {
       const file = e.target.files?.[0]; e.target.value = ''; if (!file) return
@@ -58,7 +59,7 @@ export function GameChangerImport({ data, repository, disabled, onPreview }: { d
       try { if (file.size > 5_000_000) throw new Error('Choose a CSV smaller than 5 MB.'); const result = parseGameChanger(await file.text()); setParsed(result); setFileName(file.name); setSeason(suggestSeason(file.name)); if (teams.length === 1) setTeamId(teams[0].id) }
       catch (cause) { setError((cause as Error).message) } finally { setBusy(false) }
     }} /></label>
-    {error && <p className="settings-notice error-text" role="alert">{error}</p>}{message && <p role="status" className="settings-notice">{message}</p>}
+    {error && <p className="settings-notice error-text" role="alert">{userMessage(error)}</p>}{message && <p role="status" className="settings-notice">{message}</p>}
     {parsed && !staged && <>
       <div className="gc-fields"><label className="field-label">Import team<select aria-label="Import team" value={teamId} disabled={locked} onChange={e => { setTeamId(e.target.value); resetChoices() }}><option value="">Choose team</option>{teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
         <label className="field-label">Season name<input value={season} maxLength={150} disabled={locked} onChange={e => { setSeason(e.target.value); resetChoices() }} /></label>
@@ -81,7 +82,7 @@ export function GameChangerImport({ data, repository, disabled, onPreview }: { d
       <div className="gc-table-wrap"><table className="gc-table"><caption>Pitcher totals</caption><thead><tr><th>Measure</th>{existing && <th>Current</th>}<th>Import</th>{existing && <th>Change</th>}</tr></thead><tbody>{(['pitches', 'batters', 'walks', 'strikeouts'] as const).map(key => <tr key={key}><th>{key}</th>{existing && <td>{sum(existing.players, key)}</td>}<td>{sum(staged.players, key)}</td>{existing && <td>{sum(staged.players, key) - sum(existing.players, key)}</td>}</tr>)}</tbody></table></div>
       {staged.warnings.map(w => <p className="settings-notice" key={w}>{w}</p>)}
       {existing && <p>This replaces the entire summary. Previously included pitchers absent from this import will no longer contribute. Lower totals are allowed for scoring corrections.</p>}
-      {duplicate && <p role="status" className="settings-notice">Already imported. These pitching values, mappings, and coverage are unchanged.</p>}
+      {duplicate && <p role="status" className="settings-notice">Already imported. The pitching totals, matched pitchers, and dates are the same as your saved summary.</p>}
       <div className="form-actions"><button disabled={busy || disabled} onClick={() => { setStaged(null); if (duplicate) setParsed(null); setAttempted(false); setError('') }}>{duplicate ? 'Done' : 'Back to matching'}</button><button className="primary" disabled={locked || duplicate} onClick={() => void commit()}>{busy ? 'Saving…' : attempted ? 'Retry same import' : existing ? 'Replace summary' : 'Import summary'}</button></div>
       {attempted && error && <button disabled={busy || disabled || !navigator.onLine} onClick={async () => { setBusy(true); try { await repository.sync(); setStaged(null); setAttempted(false); setError(''); setChoices({}); setConfirmed({}) } catch (cause) { setError((cause as Error).message) } finally { setBusy(false) } }}>Refresh & review again</button>}
     </div>}
