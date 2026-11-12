@@ -41,7 +41,10 @@ def exercise(browser, label):
         expect(page.locator('.count-numbers').get_by_label(f'{strikes} strikes', exact=True)).to_be_visible()
 
     def pitch(kind):
-        page.locator(f'.pitch-{kind} .pitch-location-middle').click()
+        if kind in ['foul', 'inPlay']:
+            page.get_by_role('button', name='Foul' if kind == 'foul' else 'In play', exact=True).click()
+        target = page.locator('.zone-ball.zone-upIn' if kind == 'ball' else '.zone-called.zone-middle')
+        target.click(position={'x':12,'y':60} if kind == 'ball' else None)
         saved()
 
     def block_writes(store):
@@ -88,8 +91,10 @@ def exercise(browser, label):
     count(0, 0)
     # Dispatch rapid taps before waiting for saves to exercise ordering.
     page.evaluate("""() => {
-        for (const kind of ['ball', 'called', 'foul', 'foul'])
-            document.querySelector('.pitch-' + kind + ' .pitch-location-middle').click();
+        for (const kind of ['ball', 'called', 'foul', 'foul']) {
+            if (kind === 'foul') document.querySelector('.outcome-foul').click();
+            document.querySelector(kind === 'ball' ? '.zone-ball.zone-upIn' : '.zone-called.zone-middle').click();
+        }
     }""")
     saved()
     count(1, 2)
@@ -109,7 +114,8 @@ def exercise(browser, label):
             assert undo_box['y'] + undo_box['height'] <= navigation_box['y'], 'Undo should fit above phone navigation'
         page.screenshot(path=str(ARTIFACTS / f'{label}-{name}-practice.png'), full_page=True)
 
-    page.get_by_role('button', name='Record swinging strike').click()
+    page.get_by_role('button', name='Swing', exact=True).click()
+    page.get_by_role('button', name='Record without location', exact=True).click()
     saved()
     expect(page.locator('.pitch-log li').first).to_contain_text('Not recorded')
     count(0, 0)
@@ -140,7 +146,7 @@ def exercise(browser, label):
 
     page.get_by_role('button', name='Pause', exact=True).click()
     saved()
-    for target in page.locator('.pitch-target').all():
+    for target in page.locator('.zone-target').all():
         expect(target).to_be_disabled()
     page.reload()
     saved()
@@ -161,10 +167,10 @@ def exercise(browser, label):
 
     # Simulate a disk failure, restore storage, and verify Retry saves only once.
     block_writes('appearances')
-    page.locator('.pitch-called .pitch-location-upIn').click()
+    page.locator('.zone-called.zone-upIn').click()
     expect(page.get_by_role('alert')).to_contain_text('Couldn’t save your changes.')
     count(0, 0)
-    for target in page.locator('.pitch-target').all():
+    for target in page.locator('.zone-target').all():
         expect(target).to_be_disabled()
     page.evaluate('window.restoreTransactions()')
     page.get_by_role('button', name='Retry', exact=True).click()
