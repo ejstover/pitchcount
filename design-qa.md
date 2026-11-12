@@ -84,3 +84,19 @@ At 320/390/768/1440px, checked rendered document width against viewport and visi
 - Latest full Vitest run: 138 tests passed, 8 files passed.
 - TypeScript and production build passed; final build verification recorded in the task tool results.
 - Review checklist: selected visual matched; desktop and phone inspected; core actions exercised; reference/implementation compared together; required fidelity surfaces checked; only accepted P3 differences remain.
+
+
+## Shared pitch zone — November 12, 2026
+
+Replaced the four recording tiles with one square strike zone and a continuous outside band with filled 45-degree corners. The existing Electric palette and fonts remain in use. A tap records a called strike inside or a ball outside; sliding previews the location and lifting commits once. Lifting outside, pointer cancellation, or rotation during a gesture cancels recording. Swing, Foul, and In play are one-pitch selections that reset after recording. Native keyboard buttons and Escape are supported. Player target drills are expandable below the primary controls.
+
+Verified against the current implementation:
+
+- `tests/pitch_locations.py` passes separately for coach and player accounts: actual touch input inside and outside, four diagonal corners, all special outcomes, drag adjustment/cancellation, circle hit detection, keyboard, rapid input, undo, reload, pause/resume, history, and exported saved locations.
+- The same browser check records a real pitch after every resize at 320×740, 390×844, 667×375, 740×320, 844×390, 768×1024, and 1440×1000. Targets have bounding dimensions of at least 48px and there is no horizontal overflow. Primary controls fit above navigation at 390×844 and within the landscape viewport at 667×375 and 844×390. Shorter screens retain vertical scrolling.
+- `tests/browser_smoke.py` passes the full practice workflow, keyboard access, persistence, failed-save recovery, and responsive layouts.
+- `tests/achievements_browser.py` passes, including ten intended-target pitches and completing a player target drill.
+- `tests/pwa_backup.py` passes against an isolated production build: offline close/reopen and scoring, backup export/import and device transfer, offline restore, and an actual waiting service-worker update that preserves records.
+- The 70 focused tests in PitchRecorder, domain, storage, and statistics pass. TypeScript and the production build pass.
+
+Captures are in `.test-artifacts/locations-*.png` and `.test-artifacts/player-locations-*.png`. Browser verification uses Chromium touch emulation; physical-device Safari and glove-in-hand usability remain device checks.
