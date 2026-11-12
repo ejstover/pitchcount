@@ -49,6 +49,8 @@ class Backend:
         self.fail_remove = False
         self.setup_used = False
         self.password_updates = 0
+        self.fail_verification_email = False
+        self.used_verification_emails = set()
 
     def handle(self, route):
         req = route.request
@@ -84,14 +86,51 @@ class Backend:
                 else:
                     result, status = {'error': 'Could not sign in. Check your username and password.'}, 401
             elif action == 'request':
-                self.requests.append({'id': str(uuid.uuid4()), 'name': payload['name'], 'email': payload['email'], 'requested_team': payload['requestedTeam'], 'status': 'pending'})
-                result = {'message': 'Request received.'}
+                if self.fail_verification_email:
+                    result, status = {'error': 'Could not send your verification email. Wait a minute and retry, or contact the admin.'}, 503
+                elif not any(r['email'] == payload['email'] for r in self.requests):
+                    account_id = str(uuid.uuid4())
+                    self.requests.append({'id': str(uuid.uuid4()), 'account_id': account_id, 'name': payload['name'], 'email': payload['email'], 'requested_team': payload['requestedTeam'], 'role': payload.get('role', 'coach'), 'username': payload.get('username'), 'verified_at': None, 'status': 'pending'})
+                    self.data['coaches'].append({'id': account_id, 'name': payload['name'], 'email': payload['email'], 'role': payload.get('role', 'coach'), 'username': payload.get('username'), 'active': False, 'pitcherId': None})
+                else:
+                    self.used_verification_emails.discard(payload['email'])
+            elif action == 'verify_request':
+                target = next((r for r in self.requests if r['email'] == payload['email']), None)
+                if payload.get('code') != '123456' or payload['email'] in self.used_verification_emails or not target:
+                    result, status = {'error': 'This code is invalid or expired. Request a new code and try again.'}, 400
+                else:
+                    target['verified_at'] = '2026-10-22T12:00:00Z'
+                    self.used_verification_emails.add(payload['email'])
+                    result = {'message': 'Email verified—waiting for admin approval.'}
+            elif action == 'approve_request':
+                target = next(r for r in self.requests if r['id'] == payload['requestId'])
+                if not target.get('verified_at'):
+                    result, status = {'error': 'Email verification is required before approval'}, 400
+                else:
+                    target['status'] = 'approved'
+                    account = next(c for c in self.data['coaches'] if c['id'] == target['account_id'])
+                    account['active'] = True
+                    team = next((t for t in self.data['teams'] if t['id'] == payload.get('teamId')), None) or next((t for t in self.data['teams'] if t['name'].strip().lower() == target['requested_team'].strip().lower()), None)
+                    if target['requested_team'] and not team:
+                        team = {'id': str(uuid.uuid4()), 'name': target['requested_team'], 'createdAt': '2026-10-22T12:00:00Z', 'updatedAt': '2026-10-22T12:00:00Z'}
+                        self.data['teams'].append(team)
+                    if account['role'] == 'player':
+                        if not account.get('pitcherId'):
+                            account['pitcherId'] = str(uuid.uuid4())
+                            self.data['pitchers'].append({'id': account['pitcherId'], 'name': target['name'], 'ownerId': COACH_ID, 'jersey': '', 'archived': False, 'createdAt': '2026-10-22T12:00:00Z', 'updatedAt': '2026-10-22T12:00:00Z'})
+                        if team:
+                            self.data['teamPitchers'].append({'teamId': team['id'], 'pitcherId': account['pitcherId'], 'active': True})
+                    elif team:
+                        self.data['teamCoaches'].append({'coachId': account['id'], 'teamId': team['id']})
+                    result = {'setupLink': 'http://localhost:5187/#password-setup=valid-setup-token'}
             elif not self.profile['active']:
                 status, result = 403, {'error': 'Your account is unapproved or suspended. Contact the admin.', 'code': 'access_denied'}
             elif action == 'profile':
                 result = self.profile
             elif action == 'list':
                 result = {'profiles': self.data['coaches'], 'requests': self.requests, 'memberships': [{'coach_id': m['coachId'], 'team_id': m['teamId']} for m in self.data['teamCoaches']]}
+            elif action == 'find_teams':
+                result = [t for t in self.data['teams'] if t['name'].lower().startswith(payload.get('search', '').lower())][:25]
             elif action in ('create', 'update'):
                 account_id = payload.get('id') or str(uuid.uuid4())
                 if action == 'create':
