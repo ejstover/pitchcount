@@ -8,9 +8,15 @@ import { SupabaseGateway,getDeviceId } from './cloud'
 import { PitchDatabase,Repository } from './storage'
 import { usePwa } from './pwa'
 import { defaultProfile } from './achievements/types'
+import {CoachWelcome,JoinTeam} from './Onboarding'
 type Access = {profile:AccountProfile;repository:Repository}
 
 export function AuthGate() {
+  const [playerInvite,setPlayerInvite]=useState<string|null>(()=>{
+    const token=new URLSearchParams(location.hash.slice(1)).get('player-invite')
+    if(token) sessionStorage.setItem('pitchwork-player-invite',token)
+    return token ?? sessionStorage.getItem('pitchwork-player-invite')
+  })
   const [access,setAccess] = useState<Access|null>(null)
   const [loading,setLoading] = useState(!configurationError)
   const [message,setMessage] = useState(authRedirectError)
@@ -87,16 +93,23 @@ export function AuthGate() {
     return checking.current
   }
   useEffect(() => {
+    if(playerInvite) history.replaceState(null,'',location.pathname)
+  },[playerInvite])
+  useEffect(() => {
     mounted.current = true;void verify()
     const refresh = () => {if (!document.hidden) void verify()}
-    const setupLink = () => {const token = readSetupToken();if (token) {setupMode.current = true;setSetup(token);setLoading(false)}}
+    const setupLink = () => {
+      const invitation=new URLSearchParams(location.hash.slice(1)).get('player-invite')
+      if(invitation){sessionStorage.setItem('pitchwork-player-invite',invitation);setPlayerInvite(invitation)}
+      const token = readSetupToken();if (token) {setupMode.current = true;setSetup(token);setLoading(false)}
+    }
     window.addEventListener('hashchange',setupLink)
     window.addEventListener('online',refresh);window.addEventListener('offline',refresh);window.addEventListener('focus',refresh)
     document.addEventListener('visibilitychange',refresh)
     const timer = window.setInterval(refresh,30000)
     // Do not await Supabase calls inside its auth event callback (SDK lock).
     const subscription = supabase?.auth.onAuthStateChange((event,session) => {
-      if (event === 'PASSWORD_RECOVERY') {setupMode.current = true;setSetup(previous => previous ?? '');setLoading(false)}
+      if (event === 'PASSWORD_RECOVERY' && session) {sessionStorage.setItem('pitchwork-password-setup',session.user.id);setupMode.current = true;setSetup(previous => previous ?? '');setLoading(false)}
       if (event === 'SIGNED_IN' && recovery.current && recovery.current.identity.coachId !== session?.user.id) {recovery.current.db.close();setRecovery(null)}
       if (event === 'SIGNED_IN' && current.current && session?.user.id !== current.current.profile.id) {
         current.current.repository.db.close();current.current = null;setAccess(null);setLoading(true)
@@ -131,6 +144,7 @@ export function AuthGate() {
     setMessage('You’re signed out. This account’s downloaded records have been cleared.')
   }
   if (setup !== null) return <PasswordSetup initialToken={setup || null} onComplete={() => {setupMode.current = false;setSetup(null);setLoading(true);void verify()}} onCancel={() => {sessionStorage.removeItem('pitchwork-password-setup');setupMode.current = false;setSetup(null);setLoading(false);setMessage('Sign in with your email and password.')}}/>
+  if(playerInvite) return <JoinTeam token={playerInvite} hasSession={!!cachedSessionUserId()} onComplete={()=>{setPlayerInvite(null);setLoading(true);void verify()}} onCancel={()=>{sessionStorage.removeItem('pitchwork-player-invite');setPlayerInvite(null)}}/>
   if (loading) return <main className="account-gate"><span className="eyebrow">PITCHWORK</span><h1>Opening your dugout…</h1><p>Checking your account and downloading your teams.</p></main>
   async function exportLockedRecovery() {
     if (!lockedRecovery) return
@@ -140,5 +154,6 @@ export function AuthGate() {
     document.body.append(anchor);anchor.click();anchor.remove();setTimeout(() => URL.revokeObjectURL(url),60000)
   }
   if (!access) return <Login message={message} onRetry={() => {setLoading(true);void verify()}} onExportRecovery={lockedRecovery ? exportLockedRecovery : undefined}/>
+  if(access.profile.role==='coach' && access.profile.onboardingTeamId) return <CoachWelcome profile={access.profile} repository={access.repository} onComplete={()=>void verify()}/>
   return <>{message && <div className="account-status" role="alert"><span>{userMessage(message)}</span>{navigator.onLine && <><button onClick={() => void verify()}>Retry access</button><button onClick={() => {current.current = null;setAccess(null)}}>Sign in again</button></>}</div>}<App key={`${access.profile.id}:${access.profile.role}`} repository={access.repository} coach={access.profile} onSignOut={signOut}/></>
 }

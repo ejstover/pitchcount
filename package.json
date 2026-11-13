@@ -9,6 +9,27 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
+    "benchmark:workspace": "node scripts/benchmark-workspace.mjs",
+    "benchmark:idle-queue": "node scripts/benchmark-idle-queue.mjs",
+    "benchmark:events": "node scripts/benchmark-events.mjs",
+    "test:load": "node scripts/load-test.mjs",
+    "test:load:sharded": "node scripts/sharded-load-test.mjs",
+    "test:load-runner": "node scripts/check-load-runner.mjs",
+    "test:postgres": "node scripts/check-concurrency.mjs",
+    "test:security": "node scripts/check-dependency-security.mjs",
+    "test:dev-security": "node scripts/check-dev-private-files.mjs",
+    "test:account-gateway": "node scripts/check-account-gateway.mjs",
+    "test:build-secrets": "node scripts/check-build-secrets.mjs",
+    "benchmark:native": "node scripts/benchmark-native-load.mjs",
+    "seed:native": "node scripts/seed-native-scale.mjs",
+    "seed:native:metadata": "node scripts/seed-native-metadata.mjs",
+    "postgres:start": "node scripts/local-postgres.mjs start",
+    "postgres:stop": "node scripts/local-postgres.mjs stop",
+    "supabase:local:start": "node scripts/local-supabase.mjs start",
+    "supabase:local:stop": "node scripts/local-supabase.mjs stop",
+    "test:local-api": "node scripts/check-local-api.mjs",
+    "seed:local-api": "node scripts/copy-local-population.mjs",
+    "prepare:local-load": "node scripts/prepare-local-load.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -16,6 +37,13 @@
     "dexie": "^4.2.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
+  },
+  "overrides": {
+    "fast-uri": "^3.1.9",
+    "serialize-javascript": "^7.1.4",
+    "workbox-build": {
+      "glob": "^14.0.5"
+    }
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",
@@ -25,6 +53,8 @@
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.2.0",
     "fake-indexeddb": "^6.2.4",
+    "pg": "^8.23.1",
+    "pg-copy-streams": "7.0.0",
     "tailwindcss": "^4.1.14",
     "typescript": "~5.9.3",
     "vite": "^7.3.7",

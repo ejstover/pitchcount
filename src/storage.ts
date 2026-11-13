@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie'
+import { bySession } from './collections'
 import { createId as id } from './id'
 import type { Goal, GoalDraft } from './goals'
 import { isCoach } from './domain'
@@ -60,18 +61,19 @@ const now = () => new Date().toISOString()
 
 export class Repository {
   private queue: Promise<unknown> = Promise.resolve()
-  private listeners = new Set<(dirty: boolean) => void>()
+  private listeners = new Set<(dirty: boolean,change:'data'|'status') => void>()
   private syncing: Promise<void> | null = null
   private syncStartedAt: number | null = null
   private syncCompletedAt: number | null = null
   private retired = false
+  private workspaceTeam: string | null = null
   syncMessage = ''
   private achievementConfirmationError: string | undefined
   private achievementEvaluation: Snapshot['achievementEvaluation']
   get syncState() { return { running: this.syncing !== null, startedAt: this.syncStartedAt, completedAt: this.syncCompletedAt } }
   constructor(public db: PitchDatabase, public identity: Identity = { coachId: 'local', deviceId: 'local' }, private gateway?: Gateway) {}
-  subscribe(listener: (dirty: boolean) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
-  private emit(dirty = false) { this.listeners.forEach(listener => listener(dirty)) }
+  subscribe(listener: (dirty: boolean,change:'data'|'status') => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
+  private emit(dirty = false,change:'data'|'status'='data') { this.listeners.forEach(listener => listener(dirty,change)) }
   owns(session: Session) { return !session.recovered && session.recorderId === this.identity.coachId && session.deviceId === this.identity.deviceId }
   private writable(session: Session) { if (session.archived) throw new Error('Reactivate the practice before editing it.'); if (!this.owns(session)) throw new Error('This practice is read-only on this device.') }
   private async eligible(pitcherId: string, teamId: string | null) {
@@ -140,7 +142,8 @@ export class Repository {
         await this.refresh()
         return
       }
-      const appearances = backup.sessions.flatMap(session => project(session, backup.events.filter(e => e.sessionId === session.id)).appearances)
+      const backupEvents = bySession(backup.events)
+      const appearances = backup.sessions.flatMap(session => project(session, backupEvents.get(session.id) ?? []).appearances)
       await this.db.transaction('rw', this.db.tables, async () => {
         await Promise.all(this.db.tables.map(table => table.clear()))
         await this.db.teams.bulkAdd(backup.teams)
@@ -167,6 +170,22 @@ export class Repository {
   }
   async saveGoal(draft: GoalDraft, existing?: Goal): Promise<Goal> {
     return this.manage<Goal>('saveGoal', { ...draft, id: existing?.id ?? id(), expectedRevision: existing?.revision ?? 0 })
+  }
+  async selectWorkspaceTeam(teamId:string|null) {
+    if(!this.gateway?.setWorkspaceTeam) throw new Error('Team browsing is unavailable.')
+    if(this.syncing || await this.hasPending()) throw new Error('Finish syncing before browsing another team.')
+    if((await this.db.sessions.toArray()).some(s=>this.owns(s) && s.status!=='ended')) throw new Error('End your practice before browsing another team.')
+    this.gateway.setWorkspaceTeam(teamId)
+    await this.sync()
+    if(this.syncMessage) {this.gateway.setWorkspaceTeam(this.workspaceTeam);throw new Error(this.syncMessage)}
+    this.workspaceTeam=teamId
+  }
+  async inspectPractice(id:string) {
+    if(!this.gateway?.setInspectedPractice) throw new Error('Practice review is unavailable.')
+    this.gateway.setInspectedPractice(id)
+    await this.sync()
+    if(this.syncMessage)throw new Error(this.syncMessage)
+    if(!await this.db.sessions.get(id))throw new Error('This practice is no longer available.')
   }
   async deleteGoal(goal: Goal): Promise<void> {
     await this.manage('deleteGoal', { id: goal.id, expectedRevision: goal.revision })
@@ -369,15 +388,25 @@ export class Repository {
       const deleted = new Set((await this.db.deletions.toArray()).filter(d => d.kind === 'session').map(d => d.id))
       for (const op of pending) if (deleted.has(op.sessionId)) await this.db.uploads.update(op.id, {blocked: 'This practice was permanently deleted. Export unsynced work for recovery.'})
       const remoteVersions = new Map(remote.sessions.map(s => [s.id, s.revision]))
+      const remoteSessions = new Map(remote.sessions.map(s => [s.id,s]))
+      const previousSessions = await this.db.sessions.toArray()
+      const previousById = new Map(previousSessions.map(s => [s.id,s]))
+      const previousEvents = bySession(await this.db.events.toArray())
       const local = await this.db.sessions.filter(s => !deleted.has(s.id) && !blockedIds.has(s.id) && (pendingIds.has(s.id) || (this.owns(s) && s.revision > (remoteVersions.get(s.id) ?? 0))) && (s.teamId === null || teams.has(s.teamId))).toArray()
       const localIds = new Set(local.map(s => s.id))
       const events = await this.db.events.filter(e => localIds.has(e.sessionId)).toArray()
-      const sessions = [...remote.sessions.filter(s => !deleted.has(s.id) && !localIds.has(s.id) && !blockedIds.has(s.id)), ...local].map(s => ({...s, archived: remote.sessions.find(r => r.id === s.id)?.archived ?? s.archived ?? false}))
+      const sessions = [...remote.sessions.filter(s => !deleted.has(s.id) && !localIds.has(s.id) && !blockedIds.has(s.id)), ...local].map(s => ({...s, archived: remoteSessions.get(s.id)?.archived ?? s.archived ?? false}))
       const sessionIds = new Set(sessions.map(s => s.id))
       const source = [...remote.events.filter(e => !localIds.has(e.sessionId)), ...events].filter(e => sessionIds.has(e.sessionId))
+      const sourceBySession = bySession(source)
+      for(const rows of previousEvents.values()) rows.sort((a,b)=>a.sequence-b.sequence)
+      for(const rows of sourceBySession.values()) rows.sort((a,b)=>a.sequence-b.sequence)
+      const changed = sessions.filter(s => JSON.stringify(s)!==JSON.stringify(previousById.get(s.id)) || JSON.stringify(sourceBySession.get(s.id)??[])!==JSON.stringify(previousEvents.get(s.id)??[]))
+      const removedIds = previousSessions.filter(s => !sessionIds.has(s.id)).map(s => s.id)
+      const replacedIds = [...removedIds,...changed.map(s=>s.id)]
       const activityPending=await this.db.activityOutbox.toArray(), activityIds=new Set(activityPending.map(o=>o.record.id))
       const localActivities=await this.db.achievementRecords.filter(r=>activityIds.has(r.id)).toArray()
-      for (const table of this.db.tables) if (!['uploads','deletions','activityOutbox'].includes(table.name)) await table.clear()
+      for (const table of this.db.tables) if (!['uploads','deletions','activityOutbox','sessions','events','appearances'].includes(table.name)) await table.clear()
       await this.db.teams.bulkPut(remote.teams.map(t => ({...t, archived: t.archived ?? false}))); await this.db.pitchers.bulkPut(remote.pitchers)
       await this.db.coaches.bulkPut(remote.coaches); await this.db.teamCoaches.bulkPut(remote.teamCoaches)
       await this.db.teamPitchers.bulkPut(remote.teamPitchers); await this.db.invitations.bulkPut(remote.invitations)
@@ -387,8 +416,12 @@ export class Repository {
       await this.db.achievementAwards.bulkPut(remote.achievementAwards??[])
       await this.db.teamChallenges.bulkPut(remote.teamChallenges??[])
       await this.db.achievementSessions.bulkPut(remote.achievementSessions??[]);await this.db.achievementEvents.bulkPut(remote.achievementEvents??[])
-      await this.db.sessions.bulkPut(sessions); await this.db.events.bulkPut(source)
-      await this.db.appearances.bulkPut(sessions.flatMap(s => project(s, source.filter(e => e.sessionId === s.id)).appearances))
+      await this.db.sessions.bulkDelete(removedIds)
+      await this.db.events.where('sessionId').anyOf(replacedIds).delete()
+      await this.db.appearances.where('sessionId').anyOf(replacedIds).delete()
+      await this.db.sessions.bulkPut(changed)
+      await this.db.events.bulkPut(changed.flatMap(s=>sourceBySession.get(s.id)??[]))
+      await this.db.appearances.bulkPut(changed.flatMap(s => project(s, sourceBySession.get(s.id)??[]).appearances))
     })
     this.emit()
   }
@@ -403,9 +436,9 @@ export class Repository {
       this.syncing = null
       this.syncStartedAt = null
       this.syncCompletedAt = Date.now()
-      this.emit()
+      this.emit(false,'status')
     })
-    this.emit()
+    this.emit(false,'status')
     return this.syncing
   }
   private async upload(operation: Upload) {
@@ -435,8 +468,11 @@ export class Repository {
       while (!this.retired) {
         const op = await this.db.transaction('rw', this.db.uploads, async () => {
           const next = (await this.db.uploads.toArray()).filter(o => !o.blocked && !blocked.has(o.sessionId)).sort((a, b) => a.sessionId.localeCompare(b.sessionId) || a.expectedRevision - b.expectedRevision)[0]
-          if (next) { next.inFlight = true; await this.db.uploads.put(next) }
-          return next
+          if (!next)return undefined
+          const prepared=this.gateway?.prepareUpload?.(next)??next
+          prepared.inFlight=true
+          await this.db.uploads.put(prepared)
+          return prepared
         })
         if (!op) break
         try {

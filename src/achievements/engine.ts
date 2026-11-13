@@ -1,19 +1,30 @@
 import { metrics, project, type Appearance, type SessionEvent } from '../domain.ts'
+import { bySession } from '../collections.ts'
 import type { Snapshot } from '../shared.ts'
 import { catalog, isMeta } from './catalog.ts'
 import { addDays, calendarWindow, dateAt } from './calendar.ts'
-import { defaultProfile, drillTypes, type AchievementAward, type AchievementRecord, type EvaluationResult, type GoalWindow, type PlayerProfile } from './types.ts'
+import { drillTypes, type AchievementAward, type AchievementRecord, type EvaluationResult, type GoalWindow } from './types.ts'
+import {playerProfile} from './profile.ts'
+export {playerProfile} from './profile.ts'
 
 type Practice = { id: string; date: string; events: SessionEvent[]; appearances: Appearance[] }
+const definitionsById=new Map(catalog.map(def=>[def.id,def]))
+const definitionsByFamily=new Map<number,(typeof catalog)[number][]>()
+for(const def of catalog){const family=definitionsByFamily.get(def.family)??[];family.push(def);definitionsByFamily.set(def.family,family)}
 const unique = <T>(values: T[]) => [...new Set(values)]
 const percent = (n: number, d: number) => d ? n / d * 100 : null
 const natural = (a: Appearance) => a.outcome === 'walk' || a.outcome === 'strikeout' || a.outcome === 'inPlay'
-function totals(practices: Practice[]) {
+function calculateTotals(practices: Practice[]) {
   const appearances = practices.flatMap(p => p.appearances), m = metrics(appearances), finished = appearances.filter(natural)
   return { ...m, completed: finished.length, completedWalk: percent(finished.filter(a => a.outcome === 'walk').length, finished.length), firstPositive: appearances.filter(a => a.pitches.length && a.pitches[0] !== 'ball').length }
 }
-export function playerProfile(records: AchievementRecord[]): PlayerProfile {
-  return records.filter(r => r.kind === 'profile').sort((a,b) => a.updatedAt.localeCompare(b.updatedAt)).at(-1)?.data as PlayerProfile ?? defaultProfile()
+// Each evaluation creates fresh immutable projections; weak keys release its evidence.
+const practiceTotals=new WeakMap<Practice,ReturnType<typeof calculateTotals>>()
+function totals(practices:Practice[]){
+  if(practices.length!==1)return calculateTotals(practices)
+  const practice=practices[0],cached=practiceTotals.get(practice)
+  if(cached)return cached
+  const result=calculateTotals(practices);practiceTotals.set(practice,result);return result
 }
 export function evaluateAchievements(input: Pick<Snapshot, 'sessions'|'events'> & Pick<Snapshot,'achievementRecords'|'achievementSessions'|'achievementEvents'>, pitcherId: string, now = new Date()): EvaluationResult {
   const sessions=new Map((input.achievementSessions??[]).map(s=>[s.id,s]))
@@ -25,10 +36,11 @@ export function evaluateAchievements(input: Pick<Snapshot, 'sessions'|'events'> 
   const seasons = records.filter(r => r.kind === 'season')
   const seasonAt = (date: string) => seasons.find(r => r.data.start <= date && date <= r.data.end)
   const seen = new Set<string>()
+  const eventsBySession = bySession(data.events)
   const practices: Practice[] = data.sessions.filter(s => s.status === 'ended' && (!s.recovered || !!s.originSessionId)).sort((a,b) => a.startedAt.localeCompare(b.startedAt)||a.id.localeCompare(b.id)).flatMap(s => {
     const origin = s.originSessionId ?? s.id
     if (seen.has(origin)) return []
-    const events = data.events.filter(e => e.sessionId === s.id).sort((a,b) => a.sequence-b.sequence)
+    const events = (eventsBySession.get(s.id)??[]).sort((a,b) => a.sequence-b.sequence)
     const appearances = project(s,events).appearances.filter(a => a.pitcherId === pitcherId && a.pitches.length)
     const date = dateAt(s.startedAt, profile.timezone)
     if (!appearances.length || date > today) return []
@@ -44,7 +56,7 @@ export function evaluateAchievements(input: Pick<Snapshot, 'sessions'|'events'> 
   const restValid = (date: string) => {if(!restCache.has(date))restCache.set(date,plans.some(r=>r.data.date===date&&r.data.activity==='rest'&&dateAt(r.createdAt,profile.timezone)<date));return restCache.get(date)!}
   const actionRecords = (action: string) => {if(!actionCache.has(action))actionCache.set(action,checks.filter(r=>r.data.action===action&&(action!=='rest'||restValid(r.data.date))&&(action!=='adaptation'||plans.some(p=>p.data.date===r.data.date&&p.data.adapted))));return actionCache.get(action)!}
   const emit = (family: number, actual: number | null, period = 'career', evidence: string[] = [], eligible = true, seasonId?: string, goal?: GoalWindow, remainingSample?: string) => {
-    for (const def of catalog.filter(d => d.family === family)) {
+    for (const def of definitionsByFamily.get(family)??[]) {
       const qualified = eligible && actual !== null && Number.isFinite(actual) && ([25,26].includes(family) ? actual <= def.threshold+1e-9 : actual+1e-9 >= def.threshold)
       result.progress.push({definitionId:def.id,period,actual:actual ?? 0,eligible,remainingSample})
       if (qualified) result.awards.push({id:`${pitcherId}:${def.id}:${period}`,pitcherId,definitionId:def.id,period,seasonId,earnedAt,status:'qualified',actual:actual!,evidence:unique(evidence),goal,ruleVersion:1})
@@ -52,7 +64,8 @@ export function evaluateAchievements(input: Pick<Snapshot, 'sessions'|'events'> 
   }
   const career = (family: number, n: number, evidence: string[] = practices.map(p => p.id)) => emit(family,n,'career',evidence)
   const checkCount = (family: number, action: string) => {const rows=actionRecords(action);career(family,unique(rows.map(r=>r.data.date)).length,rows.map(r=>r.id))}
-  const buckets = (scope: 'week'|'month') => unique([...practices.map(p => calendarWindow(p.date,scope).start), ...records.flatMap(r => 'date' in r.data ? [calendarWindow(r.data.date,scope).start] : [])]).sort().map(start => ({...calendarWindow(start,scope),scope}))
+  const bucketDates=unique([...practices.map(p=>p.date),...records.flatMap(r=>'date' in r.data?[r.data.date]:[])])
+  const buckets = (scope: 'week'|'month') => unique(bucketDates.map(date=>calendarWindow(date,scope).start)).sort().map(start => ({...calendarWindow(start,scope),scope}))
   const targets = drills.flatMap(d => {
     const p=practices.find(p => p.id===d.data.sessionId)
     if (!p || !['target','left','right'].includes(d.data.type)) return []
@@ -97,9 +110,10 @@ export function evaluateAchievements(input: Pick<Snapshot, 'sessions'|'events'> 
   career(4,unique(practices.map(p=>p.date.slice(0,7))).length);career(5,unique(practices.map(p=>seasonAt(p.date)?.id).filter(Boolean)).length);career(6,unique(practices.map(p=>p.date.slice(0,4))).length)
   career(11,unique(met.filter(w=>w.scope==='week').map(w=>w.start)).length,met.map(w=>w.goalId));career(12,unique(met.filter(w=>w.scope==='month').map(w=>w.start)).length,met.map(w=>w.goalId))
   career(15,unique(met.filter(w=>w.scope==='month' && ['strike','firstPitch','walk','target'].includes(w.metric)).map(w=>w.start)).length,met.map(w=>w.goalId))
-  const balanced=buckets('week').filter(b=>drills.some(d=>d.data.date>=b.start && d.data.date<=b.end) && actionRecords('reflection').some(r=>r.data.date>=b.start && r.data.date<=b.end) && actionRecords('rest').some(r=>r.data.date>=b.start && r.data.date<=b.end))
+  const weekBuckets=buckets('week'),monthBuckets=buckets('month')
+  const balanced=weekBuckets.filter(b=>drills.some(d=>d.data.date>=b.start && d.data.date<=b.end) && actionRecords('reflection').some(r=>r.data.date>=b.start && r.data.date<=b.end) && actionRecords('rest').some(r=>r.data.date>=b.start && r.data.date<=b.end))
   career(16,balanced.length,balanced.map(b=>b.start))
-  for (const b of [...buckets('week'),...buckets('month')]) {
+  for (const b of [...weekBuckets,...monthBuckets]) {
     const ps=inRange(b.start,b.end), m=totals(ps), evidence=ps.map(p=>p.id), closed=b.end<today
     emit(b.scope==='week'?9:10,m.total,b.start,evidence,true,seasonAt(b.start)?.id)
     const scheduled=unique(plans.filter(r=>r.data.activity==='practice' && r.data.date>=b.start && r.data.date<=b.end && dateAt(r.createdAt,profile.timezone)<=r.data.date).map(r=>r.data.date))
@@ -186,7 +200,7 @@ export function evaluateAchievements(input: Pick<Snapshot, 'sessions'|'events'> 
   // rather than every season whose old records contributed to the career total.
   const units=new Map<number,string[]>()
   const setUnits=(family:number,dates:string[])=>units.set(family,[...dates].sort())
-  const weighted=(family:number,values:{date:string;n:number}[])=>{const dates:string[]=[],limit=Math.max(...catalog.filter(d=>d.family===family).map(d=>d.threshold));for(const item of [...values].sort((a,b)=>a.date.localeCompare(b.date)))for(let i=0;i<item.n&&dates.length<limit;i++)dates.push(item.date);setUnits(family,dates)}
+  const weighted=(family:number,values:{date:string;n:number}[])=>{const dates:string[]=[],limit=Math.max(...(definitionsByFamily.get(family)??[]).map(d=>d.threshold));for(const item of [...values].sort((a,b)=>a.date.localeCompare(b.date)))for(let i=0;i<item.n&&dates.length<limit;i++)dates.push(item.date);setUnits(family,dates)}
   const firstDates=(values:{key:string;date:string}[])=>{const map=new Map<string,string>();for(const v of values.sort((a,b)=>a.date.localeCompare(b.date)))if(!map.has(v.key))map.set(v.key,v.date);return [...map.values()]}
   setUnits(1,practices.map(p=>p.date));weighted(2,practices.map(p=>({date:p.date,n:totals([p]).total})))
   setUnits(3,firstDates(practices.map(p=>({key:calendarWindow(p.date,'week').start,date:p.date}))));setUnits(4,firstDates(practices.map(p=>({key:p.date.slice(0,7),date:p.date}))))
@@ -202,9 +216,9 @@ export function evaluateAchievements(input: Pick<Snapshot, 'sessions'|'events'> 
   setUnits(62,firstDates(offseason.map(r=>({key:seasonAt(r.data.date)?.id??r.data.date.slice(0,4),date:r.data.date}))))
   ;['gear','routine','focus','reflection','learning','nextStep','visualization','reset','feedbackAsked','feedbackApplied','encouragement','setup','cleanup','sharedLearning','commitment'].forEach((a,i)=>setUnits(63+i,unique(actionRecords(a).map(r=>r.data.date))))
   setUnits(78,firstDates(contributions.map(r=>({key:r.data.challengeId,date:r.data.date}))));setUnits(79,firstDates(scrapbooks.map(r=>({key:r.data.seasonId,date:seasons.find(s=>s.id===r.data.seasonId)!.data.end}))))
-  const ordinary=result.awards.filter(a=>!isMeta(catalog.find(d=>d.id===a.definitionId)!.family))
-  for(const a of ordinary){const def=catalog.find(d=>d.id===a.definitionId)!;if(def.scope==='career'){const date=units.get(def.family)?.[def.threshold-1];if(date){a.achievedDate=date;a.seasonId=seasonAt(date)?.id}}}
-  career(7,unique(ordinary.map(a=>catalog.find(d=>d.id===a.definitionId)!.category)).length,ordinary.map(a=>a.id))
+  const ordinary=result.awards.filter(a=>!isMeta(definitionsById.get(a.definitionId)!.family))
+  for(const a of ordinary){const def=definitionsById.get(a.definitionId)!;if(def.scope==='career'){const date=units.get(def.family)?.[def.threshold-1];if(date){a.achievedDate=date;a.seasonId=seasonAt(date)?.id}}}
+  career(7,unique(ordinary.map(a=>definitionsById.get(a.definitionId)!.category)).length,ordinary.map(a=>a.id))
   career(8,unique(ordinary.map(a=>a.definitionId)).length,ordinary.map(a=>a.id))
   const collected=new Map<string,Set<number>>()
   const categoryById=new Map(catalog.map(d=>[d.id,d.category]))

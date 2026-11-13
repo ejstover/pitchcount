@@ -19,21 +19,56 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run test:security
+      - run: npm run test:dev-security
+      - run: npm run test:account-gateway
+      - run: npm run test:build-secrets
+      - run: npm run test:load-runner
       - run: npm test
       - run: npm run typecheck
+      - name: Compile account gateway without deploying
+        run: npx --yes wrangler@4.161.0 pages functions build functions --outdir .test-artifacts/account-pages-bundle
+        env:
+          WRANGLER_SEND_METRICS: 'false'
       - run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       - name: Upload site
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.PITCHWORK_ACCOUNT_GATEWAY_READY == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
+  postgres-concurrency:
+    runs-on: ubuntu-latest
+    env:
+      PITCHWORK_NATIVE_CPUS: '2'
+      PITCHWORK_NATIVE_MEMORY: 4g
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run postgres:start
+      - run: npm run test:postgres
+      - name: Preserve concurrency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-concurrency
+          path: .test-artifacts/postgres-concurrency.json
+          if-no-files-found: ignore
+      - run: npm run postgres:stop
+        if: always()
+
   deploy:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: check
+    # Public account actions require a verified same-origin gateway and security
+    # headers. Static-only Pages publication must stay off until both are proven.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.PITCHWORK_ACCOUNT_GATEWAY_READY == 'true'
+    needs: [check, postgres-concurrency]
     runs-on: ubuntu-latest
     permissions:
       pages: write

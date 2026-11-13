@@ -46,6 +46,8 @@ with sync_playwright() as p:
     backend = SyncBackend()
     context.unroute(URL + '/**')
     context.route(URL + '/**', backend.handle)
+    context.unroute('**/api/accounts')
+    context.route('**/api/accounts', backend.handle)
     page = context.new_page()
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
@@ -87,7 +89,7 @@ with sync_playwright() as p:
     expect(details.locator('dl > div').filter(has=page.get_by_text('Team sync', exact=True))).to_contain_text('Sync needs attention')
     notice = page.locator('.pwa-notice.sync-error')
     expect(notice).to_be_visible()
-    expect(notice).to_have_css('background-color', 'rgb(251, 228, 221)')
+    expect(notice).to_have_css('background-color', 'rgb(255, 240, 237)')
     expect(feedback).to_contain_text('Your saved work remains on this device.')
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     page.screenshot(path=str(OUT / 'sync-iphone-error.png'), full_page=True)
@@ -108,7 +110,7 @@ with sync_playwright() as p:
     backend.hold = True
     with page.expect_request(lambda req: '/rest/v1/rpc/get_workspace' in req.url and req.method == 'POST'):
         page.get_by_role('button', name='Refresh & sync').click()
-    page.get_by_role('button', name='Ball, upper left', exact=True).click()
+    page.get_by_role('button', name='Ball, upper left', exact=True).click(position={'x':12,'y':60})
     expect(page.locator('[data-save-state]')).to_have_attribute('data-save-state', 'saved')
     backend.release()
     expect(feedback).to_have_text('Changes still waiting to sync')

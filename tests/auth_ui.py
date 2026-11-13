@@ -32,13 +32,18 @@ with sync_playwright() as p:
     page.wait_for_load_state('networkidle')
     expect(page.get_by_role('heading', name='Welcome to Pitchwork.')).to_be_visible()
     page.get_by_role('button', name='Request an account').click()
+    page.get_by_label('Account type').select_option('coach')
     page.get_by_label('Your name').fill('New Coach')
     page.get_by_label('Email address').fill('new@example.com')
-    page.get_by_label('Requested team').fill('Falcons')
+    page.get_by_label('Team name', exact=True).fill('Falcons')
     page.get_by_role('button', name='Send account request').click()
     expect(page.get_by_role('status')).to_contain_text('Request received.')
     assert len(backend.requests) == 1
-    assert len(backend.data['coaches']) == 1, 'Request must not create an account'
+    assert len(backend.data['coaches']) == 2
+    assert not backend.data['coaches'][-1]['active'], 'Pending identity must stay inactive'
+    page.get_by_label('Verification code').fill('123456')
+    page.get_by_role('button', name='Verify email', exact=True).click()
+    expect(page.get_by_role('status')).to_contain_text('Email verified')
     page.screenshot(path=str(OUT / 'account-request-mobile.png'), full_page=True)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     page.get_by_role('button', name='Back to sign in').click()
@@ -55,6 +60,7 @@ with sync_playwright() as p:
     admin_context = browser.new_context(viewport={'width': 1440, 'height': 1000})
     admin = install(admin_context, role='admin')
     admin.requests = backend.requests
+    admin.data['coaches'] += backend.data['coaches'][1:]
     admin.data['teams'].append({'id': TEAM_ID, 'name': 'Falcons', 'createdAt': '2026-10-19T12:00:00Z', 'updatedAt': '2026-10-19T12:00:00Z'})
     admin.data['teamCoaches'].append({'coachId': COACH_ID, 'teamId': TEAM_ID})
     page = admin_context.new_page()
@@ -65,8 +71,8 @@ with sync_playwright() as p:
     expect(page.get_by_role('heading', name='Accounts & access')).to_be_visible()
     page.get_by_role('button', name='Review & create').click()
     editor = page.locator('.account-editor')
-    editor.get_by_role('checkbox', name='Falcons').check()
-    editor.get_by_role('button', name='Create account', exact=True).click()
+    expect(editor).to_contain_text('Join existing team')
+    editor.get_by_role('button', name='Approve account', exact=True).click()
     expect(page.get_by_label('Private password setup link')).to_be_visible()
     page.get_by_label('Filter accounts by status').select_option('all')
     account = page.locator('.account-row').filter(has_text='new@example.com').filter(has=page.get_by_role('button', name='Edit access', exact=True))
@@ -90,7 +96,7 @@ with sync_playwright() as p:
     if os.environ.get('PITCHWORK_PWA') == '1':
         page.goto(BASE)
         expect(page.get_by_role('navigation')).to_be_visible()
-    expect(page.get_by_text(re.compile(r'^Offline access.*showing records'))).to_be_visible()
+        expect(page.get_by_text(re.compile(r'^Offline access.*showing records'))).to_be_visible()
     admin_context.set_offline(False)
     page.goto(BASE)
     page.wait_for_load_state('networkidle')

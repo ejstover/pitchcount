@@ -8,6 +8,11 @@ additional_redirect_urls = ["http://localhost:5173/", "http://127.0.0.1:5173/", 
 [auth.email]
 enabled = true
 otp_expiry = 3600
+enable_confirmations = true
+
+[auth.email.template.magic_link]
+subject = "Your Pitchwork verification code"
+content_path = "./supabase/templates/verification.html"
 
 [auth.external.google]
 # For a local Supabase stack, set these in an ignored root .env file before
@@ -22,7 +27,8 @@ enabled = true
 uri = "pg-functions://postgres/public/before_user_created"
 
 [functions.accounts]
-# Public request form shares the function. All other actions verify getUser().
+# Signup, recovery, invitation acceptance, and player sign-in are public and rate limited.
+# All workspace/account management actions verify getUser().
 verify_jwt = false
 
 [functions.achievements]

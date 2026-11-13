@@ -2,9 +2,13 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { hostingHeaders } from './build-hosting'
+import {accountDevelopmentProxy} from './build-account-proxy'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), VitePWA({
+  // Retain Vite's built-in deny rules; test:dev-security checks them on upgrades.
+  server:{fs:{deny:['.env','.env.*','*.{crt,pem}','**/.git/**','**/.test-artifacts/**','**/supabase/.temp/**','**/.aws/**','**/.codex/**','**/.agents/**','**/.dev.vars*','**/.wrangler/**']}},
+  plugins: [react(), tailwindcss(), hostingHeaders(),accountDevelopmentProxy(), VitePWA({
     registerType: 'prompt',
     injectRegister: false,
     includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
@@ -24,5 +28,10 @@ export default defineConfig({
       navigateFallback: 'index.html',
     },
   })],
+  build: {rollupOptions:{output:{manualChunks(id) {
+    if(id.includes('/node_modules/@supabase/'))return 'supabase'
+    if(id.includes('/node_modules/dexie/'))return 'storage'
+    if(/\/node_modules\/(react|react-dom|scheduler)\//.test(id))return 'react'
+  }}}},
   test: { exclude: ['**/node_modules/**', '**/.test-artifacts/**'], environment: 'node', setupFiles: ['src/test-setup.ts'] },
 })

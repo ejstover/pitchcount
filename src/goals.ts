@@ -1,6 +1,6 @@
-import type { Coach } from './domain'
-import { isCoach } from './domain'
-import type { Snapshot } from './shared'
+import type { Coach } from './domain.ts'
+import { isCoach } from './domain.ts'
+import type { Snapshot } from './shared.ts'
 
 export const goalMetrics = {
   total: 'Total pitches', balls: 'Balls', positive: 'Positive strike outcomes',

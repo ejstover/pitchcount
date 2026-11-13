@@ -4,6 +4,7 @@ import { evaluateAchievements, reconcileAwards } from './engine'
 import { awardArtManifest } from './art'
 import { shareCardContent } from './share'
 import { calendarWindow, dateAt } from './calendar'
+import {needsCalendarEvaluation} from './scheduling'
 import { checkInActions, drillTypes, type AchievementRecord, type RecordPayload } from './types'
 import { emptySnapshot } from '../shared'
 import type { Session, SessionEvent, PitchType } from '../domain'
@@ -42,6 +43,13 @@ function evidenceFixture() {
   return data
 }
 describe('complete achievement catalog and evaluation',()=>{
+ it('keeps all award and progress values stable after every source calendar boundary closes',()=>{
+  const data=evidenceFixture();data.achievementRecords=data.achievementRecords!.filter(r=>r.kind!=='goal')
+  const early=new Date('2030-02-01T12:00:00Z'),later=new Date('2040-07-01T12:00:00Z')
+  expect(needsCalendarEvaluation(data,'player',early)).toBe(false)
+  const comparable=(at:Date)=>{const result=evaluateAchievements(data,'player',at);return {...result,awards:result.awards.map(a=>({...a,earnedAt:''}))}}
+  expect(comparable(later)).toEqual(comparable(early))
+ },30000)
  it('defines exactly 400 stable, distinct designs across 80 five-tier families',()=>{
   expect(families).toHaveLength(80);expect(catalog).toHaveLength(400);expect(new Set(catalog.map(d=>d.id)).size).toBe(400)
   expect(Object.keys(awardArtManifest)).toHaveLength(400);expect(new Set(catalog.map(d=>awardArtManifest[d.artwork]())).size).toBe(400)
@@ -59,6 +67,16 @@ describe('complete achievement catalog and evaluation',()=>{
   expect(dateAt('2026-03-08T04:30:00Z','America/New_York')).toBe('2026-03-07')
   expect(calendarWindow('2027-01-01','week')).toEqual({start:'2026-12-27',end:'2027-01-02'})
   expect(calendarWindow('2028-02-15','month').end).toBe('2028-02-29')
+ })
+ it('formats each date correctly while timezone formatters are reused and evicted',()=>{
+  const zones=['UTC','America/New_York','Europe/London','Australia/Lord_Howe','Asia/Kathmandu',...Intl.supportedValuesOf('timeZone').slice(0,70)]
+  for(const timezone of zones)for(const value of ['2026-03-08T04:30:00Z','2026-11-01T06:30:00Z','2028-02-29T23:59:59Z']){
+   const parts=new Intl.DateTimeFormat('en-US',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(value))
+   const part=(name:string)=>parts.find(p=>p.type===name)!.value
+   expect(dateAt(value,timezone)).toBe(`${part('year')}-${part('month')}-${part('day')}`)
+  }
+  expect(()=>dateAt('2026-01-01','invalid/timezone')).toThrow(RangeError)
+  expect(dateAt('2026-03-08T04:30:00Z','America/New_York')).toBe('2026-03-07')
  })
  it('deduplicates provenance, excludes recovered unproven history, and withdraws without changing award identity',()=>{
   const data=evidenceFixture();data.sessions=data.sessions.slice(0,1);data.achievementRecords=[]

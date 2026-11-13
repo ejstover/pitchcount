@@ -38,6 +38,8 @@ with sync_playwright() as p:
     backend = TeamsBackend('coach')
     context.unroute(URL + '/**')
     context.route(URL + '/**', backend.handle)
+    context.unroute('**/api/accounts')
+    context.route('**/api/accounts', backend.handle)
     page = context.new_page()
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))

@@ -64,7 +64,7 @@ with sync_playwright() as pw:
     page = context.new_page()
     page.goto(BASE)
     page.wait_for_load_state('networkidle')
-    context.route('**/rest/v1/rpc/get_workspace', lambda route: route.fulfill(status=500, content_type='application/json', body=json.dumps({'message':'Could not find the function public.get_workspace in the schema cache', 'code':'PGRST202'})))
+    context.route('**/rest/v1/rpc/get_workspace*', lambda route: route.fulfill(status=500, content_type='application/json', body=json.dumps({'message':'Could not find the function public.get_workspace in the schema cache', 'code':'PGRST202'})))
     page.locator('.workspace-status summary').click()
     page.get_by_role('button', name='Refresh & sync', exact=True).click()
     expect(page.locator('.sync-error').first).to_contain_text('contact your admin')
@@ -87,7 +87,7 @@ with sync_playwright() as pw:
     # Public sign-in also translates failures from the existing account service.
     context = browser.new_context()
     install(context, signed_in=False)
-    context.route('**/functions/v1/accounts', lambda route: route.fulfill(status=503, content_type='application/json', body=json.dumps({'error':'Player sign-in is not configured.'})))
+    context.route('**/api/accounts', lambda route: route.fulfill(status=503, content_type='application/json', body=json.dumps({'error':'Player sign-in is not configured.'})))
     page = context.new_page()
     page.goto(BASE)
     page.wait_for_load_state('networkidle')

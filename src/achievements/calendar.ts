@@ -1,6 +1,13 @@
 import type { GoalScope } from './types.ts'
+const formatters=new Map<string,Intl.DateTimeFormat>()
 export function dateAt(value: string | Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value))
+  let formatter=formatters.get(timezone)
+  if(formatter)formatters.delete(timezone)
+  else formatter=new Intl.DateTimeFormat('en-US',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'})
+  formatters.set(timezone,formatter)
+  // Timezone strings come from profiles. Bound process memory across tenants.
+  if(formatters.size>64)formatters.delete(formatters.keys().next().value!)
+  const parts = formatter.formatToParts(new Date(value))
   const p = (type: string) => parts.find(p => p.type === type)!.value
   return `${p('year')}-${p('month')}-${p('day')}`
 }
