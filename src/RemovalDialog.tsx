@@ -1,3 +1,4 @@
+import { userMessage } from './user-message'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { RemovalInput, RemovalPreview, RemovalTarget } from './shared'
 
@@ -49,13 +50,13 @@ export function RemovalDialog({ target, preview, perform, close, onPractice, dis
   }
   return <dialog ref={dialog} className="modal removal-dialog" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); if (!busy) close() }}>
     <div className="modal-heading"><h2 id={titleId}>Remove {target.name}</h2><button className="icon-button" aria-label="Close removal dialog" disabled={busy} onClick={close}>×</button></div>
-    {error && <p role="alert" className="settings-notice error-text">{error}</p>}
+    {error && <p role="alert" className="settings-notice error-text">{userMessage(error)}</p>}
     {!data ? <><p role="status">{error ? 'Could not check removal requirements.' : 'Checking related records…'}</p>{error && <button onClick={() => setAttempt(n => n + 1)}>Retry check</button>}</> : <>
       <label className="field-label">Removal option<select value={permanent ? 'delete' : 'archive'} disabled={busy} onChange={event => setPermanent(event.target.value === 'delete')}>
         {target.kind !== 'request' && <option value="archive">{action} — keep history</option>}
         <option value="delete">Delete permanently</option>
       </select></label>
-      <p className="form-intro">{permanent ? 'This permanently deletes this record. It cannot be undone. Related practices must be deleted individually first.' : target.kind === 'coach' ? target.archived ? 'Reactivation restores account access. Past practice history and coach attribution stay available.' : 'Suspension prevents sign-in and syncing. Past practice history and coach attribution stay available.' : 'Archived records stay in history and statistics. You can reactivate them later.'}</p>
+      <p className="form-intro">{permanent ? 'This permanently deletes the selected item and cannot be undone. Delete any related practices individually first.' : target.kind === 'coach' ? target.archived ? 'Reactivation restores account access. Past practices and the name of the coach who recorded them stay in history.' : 'Suspension prevents sign-in and syncing. Past practices and the name of the coach who recorded them stay in history.' : 'Archived records stay in history and statistics. You can reactivate them later.'}</p>
       <p className="removal-counts">{data.assignments} assignments · {data.invitations} invitations{target.kind === 'coach' && data.ownedPitchers ? ` · ${data.ownedPitchers} players will transfer to the admin if this account is deleted` : ''}</p>
       {target.kind === 'team' && !target.archived && !permanent && <p className="form-intro">Archiving also cancels pending invitations. Existing roster and coach assignments stay with the team.</p>}
       {!!blockers.length && <ul className="removal-blockers">{blockers.map(message => <li key={message}>{message}</li>)}</ul>}

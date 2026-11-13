@@ -128,5 +128,3 @@
   .is-practicing .practice-drill { grid-column: 1 / -1; grid-row: 5; }
   .is-practicing .practice-aside { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 }
-
-

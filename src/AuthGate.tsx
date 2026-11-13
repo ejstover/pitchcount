@@ -1,3 +1,4 @@
+import { userMessage } from './user-message'
 import { useEffect,useRef,useState } from 'react'
 import { App } from './App'
 import { Login } from './Login'
@@ -116,7 +117,7 @@ export function AuthGate() {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') setTimeout(() => {void (async () => {await checking.current;refresh()})()},0)
       if (event === 'SIGNED_OUT' && navigator.onLine) {
         current.current?.repository.db.close();current.current = null;setAccess(null)
-        cacheProfile(null);setLoading(false);setMessage('Sign in again to reconnect. Saved practices remain isolated on this device.')
+        cacheProfile(null);setLoading(false);setMessage('Sign in again to reconnect. Saved practices stay on this device and are available when you sign back into the same account.')
       }
     })
     return () => {
@@ -154,5 +155,5 @@ export function AuthGate() {
   }
   if (!access) return <Login message={message} onRetry={() => {setLoading(true);void verify()}} onExportRecovery={lockedRecovery ? exportLockedRecovery : undefined}/>
   if(access.profile.role==='coach' && access.profile.onboardingTeamId) return <CoachWelcome profile={access.profile} repository={access.repository} onComplete={()=>void verify()}/>
-  return <>{message && <div className="account-status" role="alert"><span>{message}</span>{navigator.onLine && <><button onClick={() => void verify()}>Retry access</button><button onClick={() => {current.current = null;setAccess(null)}}>Sign in again</button></>}</div>}<App key={`${access.profile.id}:${access.profile.role}`} repository={access.repository} coach={access.profile} onSignOut={signOut}/></>
+  return <>{message && <div className="account-status" role="alert"><span>{userMessage(message)}</span>{navigator.onLine && <><button onClick={() => void verify()}>Retry access</button><button onClick={() => {current.current = null;setAccess(null)}}>Sign in again</button></>}</div>}<App key={`${access.profile.id}:${access.profile.role}`} repository={access.repository} coach={access.profile} onSignOut={signOut}/></>
 }

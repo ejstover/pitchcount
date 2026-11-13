@@ -1,3 +1,4 @@
+import { userMessage } from './user-message'
 import { useEffect,useState } from 'react'
 import { accountApi,configurationError,signInWithPassword } from './auth'
 import { accountRequest,requestConfirmation } from './account-validation'
@@ -25,7 +26,7 @@ export function Login({message = '',onRetry,onExportRecovery}:{message?:string;o
   return <div className="login-shell"><section className="login-story"><a className="brand" href="/" aria-label="Pitchwork home"><span className="brand-mark">p<span>·</span></span><span>pitchwork<span className="brand-caption">MAKE EVERY PITCH COUNT</span></span></a><div><span className="eyebrow">YOUR TEAM. EVERY REP.</span><h1>A place for<br/> the work.</h1><p>Keep the count. See the progress.<br/>Bring your team’s practice notebook to the field.</p></div><span className="login-field" aria-hidden="true">◇</span><footer>BASEBALL & SOFTBALL / PITCHWORK</footer></section>
     <main className="login-panel"><div className="login-card"><span className="eyebrow">YOUR TEAM’S DUGOUT</span><h2>{requesting ? 'Request a place on the team.' : 'Welcome to Pitchwork.'}</h2><p>{requesting ? 'Choose Player or Coach, verify your email, then wait for admin approval.' : 'Sign in with your email or player username and password.'}</p>
       {configurationError && <div role="alert" className="settings-notice error-text">{configurationError}</div>}
-      {(message || error) && <div role="alert" className="settings-notice error-text">{error || message}</div>}
+      {(message || error) && <div role="alert" className="settings-notice error-text">{userMessage(error || message)}</div>}
       {!requesting ? <><form onSubmit={async event => {
         event.preventDefault();setError('');setBusy(true)
         const fields = new FormData(event.currentTarget)

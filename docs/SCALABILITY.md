@@ -70,7 +70,7 @@ not replace the complete local cache.
 
 ## Evidence and limits
 
-Local validation passed **381 tests across 31 test files**, TypeScript checking,
+Local validation passed **392 tests across 32 test files**, TypeScript checking,
 and the production build. The automated suite runs the entire migration chain in PGlite and tests counting,
 storage, authorization, removal, conflict/retry behavior, player privacy, paging,
 scope epochs, admin directory cursors, account body limits, and worker leases.

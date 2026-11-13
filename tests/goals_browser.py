@@ -137,7 +137,7 @@ with sync_playwright() as pw:
     assert any(s['teamId'] is None and s['pitcherIds'] == [pitcher] for s in backend.data['sessions'])
     page.get_by_role('button', name='Account settings for Test Coach', exact=True).click()
     expect(page.get_by_text('GameChanger imports', exact=True)).to_have_count(0)
-    expect(page.get_by_label('Restore from a JSON backup', exact=True)).to_have_count(0)
+    expect(page.get_by_label('Restore from a backup file', exact=True)).to_have_count(0)
     context.close()
 
     context = browser.new_context(viewport=dict(width=390, height=1000))

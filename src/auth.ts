@@ -15,9 +15,9 @@ function validConfiguration() {
     return true
   } catch { return false }
 }
-export const transportError = typeof window !== 'undefined' && !window.isSecureContext ? 'Open Pitchwork using HTTPS before entering a password. The local development server on localhost is also supported.' : ''
+export const transportError = typeof window !== 'undefined' && !window.isSecureContext ? 'Open https://count.twelvefs.com to sign in securely.' : ''
 export const configurationError = transportError || (!validConfiguration()
-  ? 'Login needs configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to public project credentials, then rebuild Pitchwork. See docs/AUTH.md.' : '')
+  ? 'Sign-in is temporarily unavailable. Please try again later or contact your admin.' : '')
 export const authStorageKey = `pitchwork-auth:${url ?? 'unconfigured'}`
 export const supabase = configurationError ? null : createClient(url!,key!,{ auth:{ storageKey:authStorageKey,flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true } })
 export type AccountProfile = Coach & {onboardingTeamId?:string|null} & ({role:'player';pitcherId:string|null}|{role:'admin'|'coach'|'viewer'})

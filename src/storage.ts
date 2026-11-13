@@ -162,7 +162,7 @@ export class Repository {
   }
   async manage<T = unknown>(action: string, input: Record<string, unknown>): Promise<T> {
     if (this.retired) throw new Error('This account has been closed.')
-    if (!this.gateway) throw new Error('Shared team setup is unavailable.')
+    if (!this.gateway) throw new Error('Team management is temporarily unavailable. Please try again later.')
     if (!navigator.onLine) throw new Error('Reconnect to manage teams and assignments.')
     const result = await this.gateway.manage(action, input)
     await this.refresh()
@@ -262,7 +262,7 @@ export class Repository {
       await this.requireCoach()
       const pitcher = await this.db.pitchers.get(pitcherId)
       if (!pitcher) throw new Error('Pitcher could not be found.')
-      if (this.gateway) throw new Error('Archive using the online roster action.')
+      if (this.gateway) throw new Error('Open Roster while online and choose Remove to archive this pitcher.')
       const ongoing = await this.db.sessions.filter(s => s.status !== 'ended' && this.owns(s) && s.selectedPitcherId === pitcherId).first()
       if (archived && ongoing) throw new Error('Change the selected pitcher or end the session before archiving this pitcher.')
       await this.db.pitchers.update(pitcherId, { archived, updatedAt: now() })
