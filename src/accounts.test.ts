@@ -86,6 +86,16 @@ describe('request input validation',() => {
     expect(() => validatePassword('a'.repeat(73))).toThrow('72 UTF-8 bytes')
     expect(() => validatePassword('😀'.repeat(20))).toThrow('72 UTF-8 bytes')
   })
-  it('normalizes a complete request',() => {expect(accountRequest({name:' Coach ',email:'COACH@Example.com ',requestedTeam:' Falcons '})).toEqual({name:'Coach',email:'coach@example.com',requestedTeam:'Falcons'})})
+  it('normalizes a complete request',() => {expect(accountRequest({name:' Coach ',email:'COACH@Example.com ',requestedTeam:' Falcons '})).toEqual({name:'Coach',email:'coach@example.com',requestedTeam:'Falcons',role:'coach',username:null})})
+  it('accepts players without a team and normalizes usernames',()=>{
+    expect(accountRequest({role:'player',name:' Player ',email:'PLAYER@example.com',username:' Practice.Kid ',requestedTeam:'  '})).toEqual({role:'player',name:'Player',email:'player@example.com',username:'practice.kid',requestedTeam:''})
+  })
+  it.each(['ab','bad user','@player','x'.repeat(25)])('rejects invalid player username %s',username=>{
+    expect(()=>accountRequest({role:'player',name:'Player',email:'p@example.com',username})).toThrow()
+  })
+  it('rejects unsupported roles and oversized optional teams',()=>{
+    expect(()=>accountRequest({role:'admin',name:'X',email:'x@example.com',requestedTeam:'Team'})).toThrow()
+    expect(()=>accountRequest({role:'player',name:'X',email:'x@example.com',username:'player',requestedTeam:'x'.repeat(201)})).toThrow()
+  })
   it.each([{name:'',email:'a@example.com',requestedTeam:'A'},{name:'A',email:'invalid',requestedTeam:'A'},{name:'A',email:'a@example.com',requestedTeam:' '},{name:'x'.repeat(101),email:'a@example.com',requestedTeam:'A'}])('rejects incomplete or excessive input',value => {expect(() => accountRequest(value)).toThrow()})
 })

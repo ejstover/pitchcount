@@ -8,3 +8,7 @@ pitchwork-backup-*.json
 !.env.example
 __pycache__/
 supabase/.temp/
+.dev.vars*
+.wrangler/
+wrangler.local.jsonc
+wrangler.jsonc

@@ -1,6 +1,6 @@
-import { metrics, type Appearance, type Pitcher, type TeamPitcher } from './domain'
-import type { DateRange } from './statistics'
-import { validCustomRange } from './statistics'
+import { metrics, type Appearance, type Pitcher, type TeamPitcher } from './domain.ts'
+import type { DateRange } from './statistics.ts'
+import { validCustomRange } from './statistics.ts'
 
 export const gcFields = { '#P': 'pitches', BF: 'batters', BB: 'walks', SO: 'strikeouts', GP: 'games', IP: 'outs', H: 'hits', R: 'runs', ER: 'earnedRuns', HBP: 'hitBatters', WP: 'wildPitches', 'S%': 'strikePct', 'FPS%': 'firstPitchPct', ERA: 'era', WHIP: 'whip' } as const
 export type GCStats = Record<typeof gcFields[keyof typeof gcFields], number | null>

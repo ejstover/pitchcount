@@ -4,6 +4,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { PitchDatabase, Repository } from './storage'
 import { CloudError, type Gateway, type Upload } from './shared'
 import { parseGameChanger, type GCImport, type GCSummary } from './gamechanger'
+import {preparePracticeTransfer,practiceUploadRequest} from './practice-transfer'
+import {SupabaseGateway} from './cloud'
+import type {SupabaseClient} from '@supabase/supabase-js'
+import {workspaceManifestHash} from './workspace-version'
+import {project,type SessionEvent} from './domain'
 
 const a = '10000000-0000-4000-8000-000000000001', b = '10000000-0000-4000-8000-000000000002'
 const admin = '10000000-0000-4000-8000-000000000003', device = '20000000-0000-4000-8000-000000000001'
@@ -17,7 +22,7 @@ async function team(name = 'Falcons') { const id = crypto.randomUUID(); await rp
 async function pitcher(teams: string[]) { const id = crypto.randomUUID(); await rpc('manage', 'savePitcher', { id, name: 'Jordan', jersey: '14', teamIds: teams }); return id }
 async function invite(teamId: string, email = 'b@example.com') {
   await rpc('manage', 'invite', { teamId, email })
-  return (await sql.query<{ id: string }>('select id from public.invitations where team_id=$1', [teamId])).rows[0].id
+  return (await rpc<any>('get_workspace')).invitations.find((i:any)=>i.teamId===teamId).id
 }
 async function gcInput(teamId: string): Promise<GCImport> {
   const parsed = parseGameChanger(readFileSync('tests/fixtures/gamechanger.csv', 'utf8'))
@@ -25,6 +30,260 @@ async function gcInput(teamId: string): Promise<GCImport> {
   for (const row of parsed.players) { const id = await pitcher([teamId]); players.push({ ...row, pitcherId: id }) }
   return { ...parsed, players, teamId, season: 'Fall 2026', coverageStart: '2026-09-01', coverageEnd: '2026-10-20', fileName: 'stats.csv', operationId: crypto.randomUUID(), newPitchers: [], expectedRevision: 0, coverageConfirmed: true }
 }
+describe('incremental upload transport against PostgreSQL',()=>{
+  function delta(op:Upload,base:Upload) {
+    const prepared=preparePracticeTransfer(op,{session:base.session,events:base.events})
+    expect(prepared.transfer?.kind).toBe('delta')
+    return practiceUploadRequest(prepared).input.delta as any
+  }
+  it('appends, acknowledges old retries, and rejects operation-ID reuse with changed content',async()=>{
+    const tid=await team(),pid=await pitcher([tid]),[first,second]=await operations(pid,tid)
+    await rpc('upload_practice',first)
+    const patch=delta(second,first)
+    expect(await rpc('upload_practice_delta',patch)).toBe(second.session.revision)
+    const notes={...second,id:crypto.randomUUID(),expectedRevision:second.session.revision,session:{...second.session,revision:second.session.revision+1,notes:'Updated notes'}}
+    await rpc('upload_practice',notes)
+    expect(await rpc('upload_practice_delta',patch)).toBe(second.session.revision)
+    await expect(rpc('upload_practice_delta',{...patch,session:{...patch.session,name:'Changed retry'}})).rejects.toThrow('Operation identifier already used')
+    expect((await rpc<any>('get_workspace')).events).toEqual(second.events)
+    await sql.exec('reset role')
+    const receipts=(await sql.query<{request_hash:string}>('select * from public.practice_delta_receipts')).rows
+    expect(receipts).toHaveLength(1);expect(receipts[0].request_hash).toMatch(/^[a-f0-9]{64}$/);expect(JSON.stringify(receipts)).not.toContain('Updated notes')
+  })
+  it('rejects stale bases, forged append order, non-pitch undo, and private table writes atomically',async()=>{
+    const tid=await team(),pid=await pitcher([tid]),[first,second]=await operations(pid,tid)
+    await rpc('upload_practice',first)
+    const patch=delta(second,first)
+    await expect(rpc('upload_practice_delta',{...patch,baseEventCount:1})).rejects.toThrow('event base changed')
+    await expect(rpc('upload_practice_delta',{...patch,appendEvents:[{...patch.appendEvents[0],sequence:2}]})).rejects.toThrow('Invalid event references')
+    await rpc('upload_practice_delta',patch)
+    const next={...second,id:crypto.randomUUID(),expectedRevision:2,session:{...second.session,revision:3}}
+    const invalid=delta(next,second);invalid.voidedEvents=[{sequence:1,voidedAt:null}]
+    await expect(rpc('upload_practice_delta',invalid)).rejects.toThrow('Invalid undo delta')
+    expect((await rpc<any>('get_workspace')).sessions[0].revision).toBe(2)
+    await expect(sql.exec("insert into public.practice_delta_receipts values(gen_random_uuid(),'forged')")).rejects.toThrow('permission denied')
+  })
+  it('rechecks team revocation and tombstones before acknowledging a prior delta receipt',async()=>{
+    const tid=await team(),pid=await pitcher([tid]),[first,second]=await operations(pid,tid)
+    await rpc('upload_practice',first);const patch=delta(second,first);await rpc('upload_practice_delta',patch)
+    await sql.exec('reset role');await sql.query('delete from public.team_coaches where team_id=$1 and coach_id=$2',[tid,a]);await login(a)
+    await expect(rpc('upload_practice_delta',patch)).rejects.toThrow('Team access was removed')
+    await sql.exec('reset role');await sql.query('insert into public.team_coaches values($1,$2)',[tid,a]);await sql.query("insert into public.record_tombstones values('session',$1)",[first.session.id]);await login(a)
+    await expect(rpc('upload_practice_delta',patch)).rejects.toThrow('permanently deleted')
+  })
+  it('persists the exact delta before sending and safely retries a lost acknowledgement after reopening',async()=>{
+    vi.stubGlobal('navigator',{onLine:true})
+    const tid=await team(),pid=await pitcher([tid]),name=`delta-reopen-${crypto.randomUUID()}`,sent:any[]=[]
+    let loseAck=false,db=new PitchDatabase(name)
+    const client={rpc:async(name:string,input:Record<string,unknown>={})=>{
+      try {
+        if(!['get_workspace_page','get_workspace_state','get_workspace_update','upload_practice','upload_practice_delta'].includes(name))throw new Error('Unexpected test RPC')
+        const entries=Object.entries(input),args=entries.map(([key,value],i)=>`${key}=>$${i+1}${value!==null&&typeof value==='object'?'::jsonb':''}`).join(',')
+        const data=(await sql.query<{r:unknown}>(`select public.${name}(${args}) r`,entries.map(([,value])=>value!==null&&typeof value==='object'?JSON.stringify(value):value))).rows[0].r
+        if(name.startsWith('upload_')){
+          sent.push(structuredClone({name,input}))
+          if(loseAck){loseAck=false;return {data:null,error:{message:'Acknowledgement lost',code:'network'}}}
+        }
+        return {data,error:null}
+      }catch(error){return {data:null,error:{message:(error as Error).message,code:(error as any).code}}}
+    },auth:{getSession:async()=>({data:{session:{user:{id:a}}}})}} as unknown as SupabaseClient
+    let repo=new Repository(db,{coachId:a,deviceId:device},new SupabaseGateway(client))
+    try {
+      await repo.sync();const sid=await repo.startSession(pid,'Incremental',tid);await repo.act(sid,'pitch','called');await repo.sync()
+      await repo.act(sid,'pitch','ball');loseAck=true;await repo.sync()
+      const [pending]=await repo.pendingUploads();expect(pending.transfer?.kind).toBe('delta');expect(pending.inFlight).toBe(true)
+      expect(repo.syncMessage).toBe('Acknowledgement lost')
+      db.close();db=new PitchDatabase(name);repo=new Repository(db,{coachId:a,deviceId:device},new SupabaseGateway(client))
+      await repo.sync();expect(repo.syncMessage).toBe('');expect(await repo.hasPending()).toBe(false)
+      expect(sent.filter(r=>r.name==='upload_practice_delta')).toHaveLength(2)
+      expect(sent[1]).toEqual(sent[2]);expect(sent[1].input.delta.appendEvents).toHaveLength(1)
+      expect((await rpc<any>('get_workspace')).events).toHaveLength(2)
+    }finally{await db.delete();vi.unstubAllGlobals()}
+  })
+})
+describe('indexed event validation equivalence',()=>{
+  it('matches the original validator on mixed histories and hostile event references',async()=>{
+    const tid=await team(),pid=await pitcher([tid]),[initial]=await operations(pid,tid)
+    await sql.exec('reset role')
+    async function accepts(name:string,session:unknown,events:unknown) {
+      try {await sql.query(`select public.${name}($1::jsonb,$2::jsonb)`,[JSON.stringify(session),JSON.stringify(events)]);return true}catch{return false}
+    }
+    for(let seed=1;seed<=12;seed++) {
+      const s={...initial.session,revision:1,pitcherIds:[pid,crypto.randomUUID()]},events:SessionEvent[]=[]
+      for(let i=0;i<seed*4;i++) {
+        const current=project(s,events).current
+        const kind=i%13===12?'switch':i%11===10?'reset':i%7===6?'next':'pitch'
+        const pitcherId=kind==='switch'?s.pitcherIds.find(p=>p!==current.pitcherId)!:current.pitcherId
+        events.push({id:crypto.randomUUID(),sessionId:s.id,pitcherId,appearanceId:current.id,nextAppearanceId:crypto.randomUUID(),sequence:i+1,timestamp:s.startedAt,kind,...(kind==='pitch'?{pitchType:['inPlay','ball','called','foul','swinging'][i%5] as SessionEvent['pitchType']}:{}),voidedAt:null})
+        s.selectedPitcherId=pitcherId
+      }
+      s.nextSequence=events.length+1
+      expect(await accepts('pw_validate_practice_reference',s,events)).toBe(true)
+      expect(await accepts('validate_practice',s,events)).toBe(true)
+      const changes:((rows:any[])=>void)[]=[
+        r=>{r[1].id=r[0].id},r=>{r[1].nextAppearanceId=r[0].nextAppearanceId},
+        r=>{r[0].appearanceId=r.at(-1).nextAppearanceId},r=>{r[0].appearanceId=r[0].nextAppearanceId},
+        r=>{r[0].nextAppearanceId=s.initialAppearanceId},r=>{r[0].id=s.initialAppearanceId},
+        r=>{r[0].sequence=2},r=>{r[0].sessionId=crypto.randomUUID()},
+        r=>{r[0].pitcherId=crypto.randomUUID()},r=>{delete r[0].voidedAt},
+        r=>{r[0].voidedAt=s.startedAt;r[0].appearanceId=r.at(-1).nextAppearanceId},
+        r=>{r[0].voidedAt=s.startedAt},r=>{r[0].timestamp='invalid'},
+        r=>{r[0].kind='reset';r[0].voidedAt=s.startedAt;delete r[0].pitchType},
+      ]
+      for(let i=0;i<changes.length;i++) {
+        const altered=structuredClone(events);changes[i](altered)
+        const reference=await accepts('pw_validate_practice_reference',s,altered)
+        expect(await accepts('validate_practice',s,altered),`seed ${seed}, mutation ${i}`).toBe(reference)
+      }
+    }
+  },15000)
+})
+describe('scalable synchronization against PostgreSQL',()=>{
+  async function page(after:string|null=null,known:Record<string,string>={},limit=50,epoch:string|null=null) {
+    return (await sql.query<{result:any}>('select public.get_workspace_page($1::uuid,$2::jsonb,$3::integer,$4::text) result',[after,JSON.stringify(known),limit,epoch])).rows[0].result
+  }
+  async function state(cached:any,entries=cached.items.map((item:any)=>[item.id,item.version] as const)) {
+    return rpc<any>('get_workspace_state',await workspaceManifestHash(cached.epoch,entries),cached.epoch,{})
+  }
+  it('verifies the entire authorized version set before skipping pages and still refreshes metadata',async()=>{
+    const tid=await team(),pid=await pitcher([tid]),[first,second]=await operations(pid,tid)
+    await rpc('upload_practice',first)
+    const [privatePractice]=await operations(pid,null);await rpc('upload_practice',privatePractice)
+    const cached=await page(),hit=await state(cached)
+    expect(hit).toMatchObject({unchanged:true,epoch:cached.epoch,items:[],next:null})
+    expect(hit.manifest).toBe(await workspaceManifestHash(cached.epoch,cached.items.map((p:any)=>[p.id,p.version])))
+    expect(hit.snapshot.teams.map((t:any)=>t.id)).toEqual([tid])
+    expect((await state(cached,[])).unchanged).toBe(false)
+    expect((await state(cached,[...cached.items.map((p:any)=>[p.id,p.version]),[crypto.randomUUID(),'1:false:true:']])).unchanged).toBe(false)
+    await rpc('upload_practice',second)
+    const changed=await state(cached);expect(changed.unchanged).toBe(false)
+    expect(changed.items.find((p:any)=>p.id===first.sessionId).session.revision).toBe(second.session.revision)
+    await expect(rpc('get_workspace_state','invalid',cached.epoch,{})).rejects.toThrow('Invalid workspace state')
+    await expect(sql.query("select public.workspace_practice_manifest('{}')")).rejects.toThrow('permission denied')
+    await sql.exec('reset role;set role anon')
+    await expect(state(cached)).rejects.toThrow('permission denied')
+  })
+  it('replaces a cached team source with only the player projection after roster removal',async()=>{
+    const tid=await team(),pid=await pitcher([tid])
+    for(const op of await operations(pid,tid))await rpc('upload_practice',{...op,session:{...op.session,notes:'Coach notes'}})
+    const player=await playerAccount(pid);await login(player)
+    const cached=await page();expect(cached.items[0].session.notes).toBe('Coach notes');expect((await state(cached)).unchanged).toBe(true)
+    await sql.exec('reset role');await sql.query('update public.team_pitchers set active=false where team_id=$1 and pitcher_id=$2',[tid,pid]);await login(player)
+    const restricted=await state(cached);expect(restricted.unchanged).toBe(false);expect(restricted.items[0].session).toBeUndefined()
+    expect(restricted.items[0].achievement.session.notes).toBe('');expect(restricted.items[0].achievement.events.every((e:any)=>e.pitcherId===pid)).toBe(true)
+    await expect(sql.query('select public.get_workspace_state($1,$2,\'{}\',$3::uuid)',[await workspaceManifestHash(cached.epoch,cached.items.map((p:any)=>[p.id,p.version])),cached.epoch,tid])).rejects.toThrow('Admin workspace access required')
+  })
+  it('invalidates manifest proofs after team revocation, suspension and archive changes',async()=>{
+    const tid=await team(),pid=await pitcher([tid]),[op]=await operations(pid,tid)
+    await rpc('upload_practice',op);const cached=await page()
+    await sql.exec('reset role');await sql.query('update public.practices set archived=true where id=$1',[op.sessionId]);await login(a)
+    const archived=await state(cached);expect(archived.unchanged).toBe(false);expect(archived.items[0].session.archived).toBe(true)
+    await sql.exec('reset role');await sql.query('delete from public.team_coaches where team_id=$1 and coach_id=$2',[tid,a]);await login(a)
+    const revoked=await state(cached);expect(revoked.unchanged).toBe(false);expect(revoked.items).toEqual([])
+    await sql.exec('reset role');await sql.query('update public.coaches set active=false where id=$1',[a]);await login(a)
+    await expect(state(cached)).rejects.toThrow('Account unavailable')
+  })
+  it('bounds legacy snapshots explicitly while paged sync still works and unrelated tenants stay excluded',async()=>{
+    const tid=await team(),pid=await pitcher([tid]),[op]=await operations(pid,tid)
+    await rpc('upload_practice',op)
+    await sql.exec('reset role')
+    await sql.query("insert into public.pitchers(id,name,owner_id)select gen_random_uuid(),'Unrelated',$1 from generate_series(1,1001)",[b])
+    await login(a);expect((await rpc<any>('get_workspace')).pitchers.map((p:any)=>p.id)).toEqual([pid])
+    await expect(sql.query('select public.pw_legacy_workspace_reference()')).rejects.toThrow('permission denied')
+    await login(admin);await expect(rpc('get_workspace')).rejects.toThrow('Update Pitchwork')
+    await sql.exec('reset role')
+    await sql.query("insert into public.practices(id,team_id,recorder_id,device_id,revision,data,events)select md5('legacy-bound:'||n)::uuid,$1,$2,$3,1,jsonb_set($4::jsonb,'{id}',to_jsonb(md5('legacy-bound:'||n)::uuid)),'[]' from generate_series(1,1001)n",[tid,a,op.session.deviceId,JSON.stringify(op.session)])
+    await login(a);await expect(rpc('get_workspace')).rejects.toThrow('Update Pitchwork')
+    const current=await page(null,{},100);expect(current.items).toHaveLength(100);expect(current.next).not.toBeNull()
+  })
+  it('exposes authorized workspace RPCs and only indexed self-profile table reads',async()=>{
+    const tid=await team();const invitation=await invite(tid);await login(b);await rpc('manage','acceptInvitation',{id:invitation});await login(a)
+    expect((await page()).snapshot.coaches.map((c:any)=>c.id).sort()).toEqual([a,b])
+    expect((await sql.query<{id:string}>('select id from public.coaches')).rows.map(c=>c.id)).toEqual([a])
+    for(const table of ['teams','team_coaches','pitchers','team_pitchers','invitations','practices','removal_visibility','gc_summaries','gc_mappings','gc_summary_pitchers','goals','player_accounts','achievement_records','achievement_awards','team_challenges']) {
+      await expect(sql.query(`select * from public.${table}`)).rejects.toThrow('permission denied')
+    }
+  })
+  it('keeps the consolidated authorization context private and matches the earlier scoped metadata',async()=>{
+    const tid=await team(),pid=await pitcher([tid])
+    for(const op of await operations(pid,tid))await rpc('upload_practice',op)
+    const player=await playerAccount(pid)
+    await login(a);await rpc('manage','saveGoal',goalInput(tid,null));await rpc('manage','saveGoal',goalInput(tid,pid,'coach'))
+    await login(player);await rpc('manage','saveGoal',goalInput(null,pid,'personal'))
+    const ordered=(value:any):any=>Array.isArray(value)?value.map(ordered).sort((a:any,b:any)=>JSON.stringify(a).localeCompare(JSON.stringify(b))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([k,v])=>[k,ordered(v)])):value
+    const compare=async(id:string,selected:string|null=null)=>{
+      await sql.exec('reset role');await sql.query("select set_config('request.jwt.claim.sub',$1,false)",[id])
+      const result=(await sql.query<{old:any;current:any}>('select public.get_workspace_metadata($1::uuid) old,public.workspace_metadata_from_context(public.workspace_query_context($1::uuid)) current',[selected])).rows[0]
+      expect(ordered(result.current)).toEqual(ordered(result.old))
+    }
+    await compare(a);await compare(player);await compare(b)
+    await sql.query("update public.coaches set role='viewer' where id=$1",[a]);await compare(a)
+    await sql.query('update public.team_pitchers set active=false where team_id=$1 and pitcher_id=$2',[tid,pid]);await compare(a);await compare(player)
+    await sql.query('update public.teams set archived=true where id=$1',[tid]);await compare(a);await compare(player)
+    await compare(admin);await compare(admin,tid)
+    await sql.query('update public.coaches set active=false where id=$1',[a])
+    await login(a)
+    await expect(page()).rejects.toThrow('Account unavailable')
+    await expect(sql.query('select public.workspace_query_context()')).rejects.toThrow('permission denied')
+    await expect(sql.query("select public.workspace_metadata_from_context('{\"actorId\":\"10000000-0000-4000-8000-000000000003\"}')")).rejects.toThrow('permission denied')
+  })
+  it('matches existing metadata access, pages complete practices and suppresses unchanged event bodies',async()=>{
+    const tid=await team(),pid=await pitcher([tid])
+      for(const op of await operations(pid,tid))await rpc('upload_practice',op)
+      const first=await page(null,{},1),legacy=await rpc<any>('get_workspace')
+      for(const key of ['teams','pitchers','coaches','teamCoaches','teamPitchers','invitations','gcSummaries','gcMappings','goals'])expect(first.snapshot[key]).toEqual(legacy[key])
+      expect(first.items).toHaveLength(1);expect(first.items[0].session.name).toBeTruthy()
+      const cached=await page(null,{[first.items[0].id]:first.items[0].version},1)
+      expect(cached.items).toEqual([{id:first.items[0].id,version:first.items[0].version}])
+      expect((await page(first.next,{},1,first.epoch)).items).toEqual([])
+      await login(b);const outsider=await page()
+      expect(outsider.items).toEqual([]);expect(outsider.snapshot.pitchers).toEqual([])
+  })
+  it('fences roster changes and rejects oversized or anonymous page requests',async()=>{
+    const first=await page();await team()
+    await expect(page(null,{},50,first.epoch)).rejects.toThrow('Workspace changed')
+    await expect(page(null,{},101)).rejects.toThrow('Invalid sync page')
+    await sql.exec('reset role;set role anon')
+    await expect(page()).rejects.toThrow('permission denied')
+  })
+  it('keeps unrelated tenant changes out of a workspace epoch and scopes admin downloads',async()=>{
+    const own=await team('Own'),pid=await pitcher([own]),first=await page()
+    const ops=await operations(pid,own);for(const op of ops)await rpc('upload_practice',op)
+    await login(b);const unrelated=await team('Other team');await pitcher([unrelated])
+    await login(a);expect((await page()).epoch).toBe(first.epoch)
+    await expect(sql.query('select public.get_workspace_page(p_team=>$1::uuid)',[unrelated])).rejects.toThrow('Admin workspace access required')
+    await login(admin)
+    expect((await page()).snapshot.teams).toEqual([])
+    const scoped=(await sql.query<{r:any}>('select public.get_workspace_page(p_team=>$1::uuid) r',[own])).rows[0].r
+    expect(scoped.snapshot.teams.map((t:any)=>t.id)).toEqual([own]);expect(scoped.snapshot.pitchers.map((p:any)=>p.id)).toEqual([pid])
+    const inspected=(await sql.query<{r:any}>('select public.inspect_practice($1) r',[ops[0].session.id])).rows[0].r
+    expect(inspected.sessions[0].id).toBe(ops[0].session.id);expect(inspected.pitchers.map((p:any)=>p.id)).toEqual([pid])
+    await login(b);await expect(sql.query('select public.inspect_practice($1)',[ops[0].session.id])).rejects.toThrow('Admin access required')
+  })
+  it('bounds the admin directory and uses a keyset cursor without dropping accounts',async()=>{
+    await sql.exec('reset role')
+    await sql.exec("insert into public.account_provisions(id,email,name,role) select gen_random_uuid(),'bulk'||n||'@test.com','Bulk '||n,'coach' from generate_series(1,60) n;insert into auth.users(id,email) select id,email from public.account_provisions where email like 'bulk%'")
+    const directory=async(after:string|null=null)=>(await sql.query<{r:any}>('select public.admin_directory($1,$2,null,\'active\',\'bulk\') r',[admin,after])).rows[0].r
+    const first=await directory();expect(first.profiles).toHaveLength(50);expect(first.nextProfiles).toBe(first.profiles.at(-1).id)
+    const second=await directory(first.nextProfiles);expect(second.profiles).toHaveLength(10);expect(second.nextProfiles).toBeNull()
+    expect(new Set([...first.profiles,...second.profiles].map(p=>p.id)).size).toBe(60)
+    await expect(sql.query('select public.admin_directory($1)',[a])).rejects.toThrow('Admin access required')
+  })
+  it('retains server-only worker functions and leases jobs with stale-worker fencing',async()=>{
+    await expect(sql.query('select public.achievement_claim(null,1)')).rejects.toThrow('permission denied')
+    const pid=await pitcher([])
+    await sql.exec('reset role')
+    await sql.query('insert into public.achievement_jobs(pitcher_id) values($1)',[pid])
+    const claim=async()=>(await sql.query<{r:any}>('select public.achievement_claim(null,1) r')).rows[0].r
+    const [job]=await claim();expect(job.pitcher_id).toBe(pid);expect(await claim()).toEqual([])
+    await sql.query("update public.achievement_jobs set leased_until=now()-interval '1 second' where pitcher_id=$1",[pid])
+    const [retry]=await claim();expect(retry.lease_token).not.toBe(job.lease_token)
+    const finish=async(token:string)=>(await sql.query<{r:boolean}>('select public.achievement_finish($1,1,$2,\'[]\') r',[pid,token])).rows[0].r
+    expect(await finish(job.lease_token)).toBe(false);expect(await finish(retry.lease_token)).toBe(true)
+    const row=(await sql.query<{next_evaluate_at:Date;leased_until:Date|null}>('select next_evaluate_at,leased_until from public.achievement_jobs where pitcher_id=$1',[pid])).rows[0]
+    expect(row.leased_until).toBeNull();expect(new Date(row.next_evaluate_at).getTime()).toBeGreaterThan(Date.now())
+  })
+})
 describe('GameChanger imports against PostgreSQL', () => {
   it('atomically imports, deduplicates renamed/reordered exports, replaces with reductions, and detects conflicts', async () => {
     const input = await gcInput(await team())
@@ -112,7 +371,7 @@ async function operations(pid: string, teamId: string | null, owner = a, ended =
 beforeAll(async () => {
   sql = new PGlite()
   await sql.exec(`create role anon; create role authenticated; create role service_role bypassrls; create role supabase_auth_admin;
-    create schema auth; create table auth.users(id uuid primary key,email text);
+    create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);
     create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
     grant usage on schema auth,public to authenticated; grant execute on function auth.uid() to authenticated;`)
   for (const migration of readdirSync('supabase/migrations').filter(name => name.endsWith('.sql')).sort()) {
@@ -196,9 +455,9 @@ describe('player accounts and goal authorization against PostgreSQL', () => {
     await expect(rpc('upload_practice',{...forged,expectedRevision:0})).rejects.toThrow('other-player')
     await login(a)
     expect((await rpc<any>('get_workspace')).sessions).toEqual([])
-    expect((await sql.query('select id from public.practices')).rows).toEqual([])
+    await expect(sql.query('select id from public.practices')).rejects.toThrow('permission denied')
   })
-  it('limits workspace and direct table reads to shared teams; roster removal and suspension revoke access', async () => {
+  it('limits workspace reads to shared teams and denies raw table scans; roster removal and suspension revoke access', async () => {
     const tid=await team(),pid=await pitcher([tid]),mate=await pitcher([tid])
     const practice=(await operations(mate,tid)).at(-1)!; await rpc('upload_practice',{...practice,expectedRevision:0})
     const independent=(await operations(pid,null)).at(-1)!; await rpc('upload_practice',{...independent,expectedRevision:0})
@@ -210,8 +469,8 @@ describe('player accounts and goal authorization against PostgreSQL', () => {
     expect(data.teams.map((t:any) => t.id)).toEqual([tid])
     expect(data.sessions.map((s:any) => s.id)).toEqual([practice.sessionId])
     expect(data.pitchers.some((p:any) => p.id===privatePid)).toBe(false)
-    expect((await sql.query('select id from public.goals')).rows).toHaveLength(1)
-    expect((await sql.query('select id from public.practices')).rows).toHaveLength(1)
+    await expect(sql.query('select id from public.goals')).rejects.toThrow('permission denied')
+    await expect(sql.query('select id from public.practices')).rejects.toThrow('permission denied')
     await login(a);await rpc('manage','setPitcher',{teamId:tid,pitcherId:pid,active:false})
     await login(player);data=await rpc<any>('get_workspace')
     expect(data.teams).toEqual([]);expect(data.goals).toEqual([]);expect(data.sessions).toEqual([])

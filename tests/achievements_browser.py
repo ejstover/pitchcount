@@ -129,6 +129,7 @@ with sync_playwright() as pw:
     expect(page.get_by_label('Starting pitcher')).to_have_value(player)
     assert page.get_by_label('Starting pitcher').locator('option').count() == 1
     page.get_by_role('button', name='Start practice', exact=True).click()
+    page.locator('.practice-drill summary').click()
     page.get_by_label('Intended target', exact=True).select_option('middle')
     page.get_by_role('button', name='Start target drill', exact=True).click()
     expect(page.get_by_role('button', name='Finish target drill')).to_be_enabled()

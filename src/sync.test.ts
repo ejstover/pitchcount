@@ -35,6 +35,17 @@ beforeEach(async () => {
 })
 afterEach(async () => { await db.delete(); vi.unstubAllGlobals() })
 describe('account-scoped offline session synchronization', () => {
+  it('keeps unchanged history in place and removes only revoked practices',async()=>{
+    const sid=await repo.startSession('p1','Keep history','t1')
+    await repo.act(sid,'pitch','called');await repo.act(sid,'pitch','ball');await repo.act(sid,'end');await repo.sync()
+    const deletedEvents=vi.fn(),deletedAppearances=vi.fn()
+    db.events.hook('deleting',deletedEvents);db.appearances.hook('deleting',deletedAppearances)
+    await repo.sync()
+    expect(deletedEvents).not.toHaveBeenCalled();expect(deletedAppearances).not.toHaveBeenCalled()
+    remote.sessions=[];remote.events=[];remote.teams=[];remote.teamPitchers=[]
+    await repo.sync()
+    expect((await repo.snapshot()).sessions).toEqual([]);expect(await db.events.count()).toBe(0);expect(await db.appearances.count()).toBe(0)
+  })
   it('caches player links and goals across offline reopening and removes revoked team goals on refresh', async () => {
     remote.coaches[0]={...remote.coaches[0],role:'player',pitcherId:'p1'}
     remote.goals=[{id:'goal',scope:'team',teamId:'t1',pitcherId:null,metric:'strikePct',direction:'min',target:60,revision:1,updatedAt:new Date().toISOString(),updatedBy:null}]
@@ -151,8 +162,8 @@ describe('account-scoped offline session synchronization', () => {
     let release!: () => void
     const waiting = new Promise<void>(resolve => { release = resolve })
     gateway.workspace = vi.fn(async () => { await waiting; return structuredClone(remote) })
-    const states: boolean[] = []
-    repo.subscribe(() => states.push(repo.syncState.running))
+    const states: boolean[] = [],changes:string[]=[]
+    repo.subscribe((_dirty,change) => {states.push(repo.syncState.running);changes.push(change)})
     const syncing = repo.sync()
     expect(repo.syncState).toMatchObject({ running: true, startedAt: expect.any(Number) })
     expect(repo.sync()).toBe(syncing)
@@ -160,6 +171,7 @@ describe('account-scoped offline session synchronization', () => {
     release(); await syncing
     expect(gateway.workspace).toHaveBeenCalledTimes(1)
     expect(states.at(-1)).toBe(false)
+    expect(changes).toEqual(['status','data','status'])
     expect(repo.syncState).toMatchObject({ running: false, startedAt: null, completedAt: expect.any(Number) })
   })
   it('keeps recording when authentication expires and resumes uploads after reconnecting', async () => {

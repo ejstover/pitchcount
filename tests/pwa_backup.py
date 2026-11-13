@@ -55,7 +55,7 @@ with sync_playwright() as p:
     page.get_by_label('Practice name').fill('Airplane mode bullpen')
     page.get_by_role('button', name='Start practice', exact=True).click()
     saved(page)
-    page.locator('.pitch-ball .pitch-location-middle').click()
+    page.locator('.zone-ball.zone-upIn').click(position={'x':12,'y':60})
     saved(page)
     count(page, 1, 0)
 
@@ -69,7 +69,7 @@ with sync_playwright() as p:
     wait_offline(page)
     count(page, 1, 0)
     expect(page.get_by_label('Connection and offline availability')).to_contain_text('Offline')
-    page.locator('.pitch-ball .pitch-location-middle').click()
+    page.locator('.zone-ball.zone-upIn').click(position={'x':12,'y':60})
     saved(page)
     page.reload()
     saved(page)
@@ -86,7 +86,7 @@ with sync_playwright() as p:
     saved(page)
     backup = json.loads(backup_file.read_text(encoding='utf-8'))
     assert backup['format'] == 'pitchwork-backup' and len(backup['events']) == 2
-    assert all(event['pitchLocation'] == 'middle' for event in backup['events'])
+    assert all(event['pitchLocation'] == 'upIn' for event in backup['events'])
     for width, height, label in [(320, 740, 'small-phone'), (390, 844, 'iphone'), (768, 1024, 'tablet'), (1440, 1000, 'desktop')]:
         page.set_viewport_size({'width': width, 'height': height})
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'Settings overflow on {label}'
@@ -113,7 +113,7 @@ with sync_playwright() as p:
     nav(target, 'Sessions')
     target.locator('.session-row').click()
     expect(target.locator('.history-log tbody tr')).to_have_count(2)
-    expect(target.locator('.history-log')).to_contain_text('Middle')
+    expect(target.locator('.history-log')).to_contain_text('Upper left')
     target_context.set_offline(True)
     target.reload()
     saved(target)

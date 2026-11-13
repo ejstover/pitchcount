@@ -1,6 +1,6 @@
 # Pitchwork
 
-A mobile-first baseball and softball practice pitch tracker. Pitchwork uses React, TypeScript, Vite, Tailwind CSS, Dexie/IndexedDB, and Supabase. Admin-approved coaches sign in with email and password, manage their assigned teams, and share team practice history. After signing in and downloading the roster online, coaches can reopen and record practices offline; saved pitches sync when connectivity returns.
+A mobile-first baseball and softball practice pitch tracker. Pitchwork uses React, TypeScript, Vite, Tailwind CSS, Dexie/IndexedDB, and Supabase. Coaches sign up with a verified email, create their own team, and invite players during setup or later. Coaches sign in with email and password, manage their teams, and share team practice history. After signing in and downloading the roster online, coaches can reopen and record practices offline; saved pitches sync when connectivity returns.
 
 Production address: **https://count.twelvefs.com** (requires the GitHub Pages and DNS setup below).
 
@@ -9,7 +9,7 @@ Production address: **https://count.twelvefs.com** (requires the GitHub Pages an
 1. Configure Supabase and email/password login using [the account setup guide](docs/AUTH.md), then open **https://count.twelvefs.com** in Safari while online.
 2. Use **Share → Add to Home Screen**. Choose **Open as Web App** if Safari offers that option.
 3. Launch Pitchwork from its home-screen icon while still online. Open the save and sync status beside the page title and check for **Ready offline**.
-4. Sign in with your approved account, create or join a team, assign pitchers, and start practice. Your PC does not need to be running.
+4. Create your coach account and team (or sign in), invite players now or later, and start practice. Your PC does not need to be running.
 5. In Settings, periodically **Download backup** and save the JSON file in Files or another location you can recover.
 
 The ordinary browser and installed web app may have separate storage. Install first, then create your roster inside the installed app. Sign in with the same approved account to download shared records. Unsynced practices remain on their original recording device; reconnect that device to upload them.
@@ -47,7 +47,7 @@ App icons can be regenerated from the existing mark with `python scripts/generat
 
 1. In Roster → Teams, create teams and assign pitchers and coaches. A pitcher or coach can belong to multiple teams. Add pitchers with an optional jersey number and any number of team selections.
 2. Start a named or unnamed practice and choose its team, or Independent for a private practice. Its team stays fixed. Each recording device has one active or paused practice; other coaches’ practices are read-only and do not block yours.
-3. Each **BALL**, **STRIKE**, **FOUL**, and **IN PLAY** tile has four quadrants and a center circle. Tap a region to record both the outcome and pitch location in one action: upper left, upper right, lower left, lower right, or middle, from the **pitcher's view looking toward home plate**. Strike records a called strike; **Record swinging strike** records a swinging strike without a location. Locations appear in Recent pitches and session history; older pitches show “Not recorded.” Historical “in” locations remain on the left and “out” locations on the right, matching the original recording controls. Saved location keys are unchanged.
+3. Use the single pitch zone from the **pitcher’s view looking toward home plate**. Tap inside the yellow square for a called strike or the blue outside band (including its filled 45-degree corners) for a ball. Tap directly, or slide to adjust and lift to record; lifting outside the target cancels. For a swinging strike, foul, or ball in play, choose **Swing**, **Foul**, or **In play**, then tap its location. That choice applies to one pitch and clears afterward; tap the selected outcome again to cancel. **Swing → Record without location** remains available when you missed the location. The zone reflows for portrait and landscape phones, and Undo remains beside or below it. Players can expand **Target drill** below the main controls for optional intended-target practice. Locations appear in Recent pitches and session history; older pitches show “Not recorded.” Historical “in” locations remain on the left and “out” locations on the right, matching the original recording controls. Saved location keys are unchanged.
 4. Walks, strikeouts, and balls in play automatically start the next batter. **Next batter** manually ends the current batter. **Reset count** retains the pitches and starts a new batter marked as a manual reset.
 5. Changing pitchers manually ends the current batter and starts a fresh 0–0 count, including when returning to an earlier pitcher.
 6. Undo reverses the latest recorded pitch in the entire session, selecting its pitcher. Automatic completions are reversed. Later manual boundaries are preserved. The undone event remains in the audit history.
@@ -77,7 +77,7 @@ In **Settings → Accounts & access**, the admin can create a **Player** account
 
 Goal editing requires connectivity. Downloaded targets and comparisons remain readable offline. Concurrent changes produce **Refresh goal** instead of overwriting someone else’s edit. Archiving preserves targets; removing a roster membership ends its team access and warnings. Permanent team/pitcher deletion removes dependent targets. Backups export version 5, include goals, and still accept versions 1–4. Restored copies never restore account links; restored personal goals need a linked player before editing.
 
-Deploy `202610210004_goals_players.sql` and `202610210005_player_practices.sql`, then the updated accounts function, before publishing the frontend:
+Deploy `202610210004_goals_players.sql`, then the updated accounts function, before publishing the frontend:
 
 ```sh
 npx supabase db push --dry-run
@@ -128,10 +128,17 @@ Run `python tests/statistics_filters_browser.py` in the same test environment to
 
 ## Storage and architecture
 
+Mainstream capacity work, its verified fixes, and the remaining launch gates are
+documented in [the scalability audit](docs/SCALABILITY.md). The updated client uses
+scoped, paged history downloads and exact-version cache hints. Deploy the new
+database migrations and both backend functions before publishing it. Production
+capacity still requires a representative staging load test; local checks do not
+certify thousands of concurrent users.
+
 - `src/domain.ts`: pure event replay and metrics, independent of React and IndexedDB.
 - `src/storage.ts`: account-scoped IndexedDB tables, team memberships, source events, and a durable upload queue. Each scoring transaction commits its practice and upload together. Pending snapshots coalesce; in-flight operations keep stable IDs and server revisions for safe retry.
 - `src/cloud.ts` and `supabase/migrations/`: authenticated team management, row-level access rules, and atomic practice uploads. Practice history is scoped to its recorded team, not the pitcher’s current roster.
-- `src/AuthGate.tsx`: Email/password authentication, admin approval, account isolation, and offline reopening. See [account/backend setup](docs/AUTH.md).
+- `src/AuthGate.tsx`: Email/password authentication, self-service coach onboarding, legacy admin approval, account isolation, and offline reopening. See [account/backend setup](docs/AUTH.md).
 - `src/App.tsx`: coaching screens and an ordered command queue. Actions become “saved” after the IndexedDB transaction commits. Failed actions stop the queue; Retry preserves their order. Discard unsaved actions cancels only uncommitted queued work.
 - Appearance rows are materialized from source events within the same transaction. Statistics are derived, not stored as authoritative totals.
 
@@ -213,3 +220,9 @@ content only. Server confirmation, recovery, the migration chain, and the
 Run `python tests/achievements_browser.py` against the mocked production PWA
 preview documented in that guide for mobile layouts, offline reopening, target
 drills and both PNG export sizes.
+
+## Coach signup and player invitations
+
+Coaches can choose **Create a team** on the sign-in screen, verify their email, and create a team without admin approval. The final setup step offers private player invitations or a skip to the app. Invitations remain available in **Roster → Teams → select team**. Players choose a username and password through their own private link. Links expire in seven days and can be revoked or replaced. Coaches share these links directly; invitation emails are not sent. Coach password recovery is available from the sign-in screen.
+
+Deploy the new database migration and accounts function before publishing the frontend. Production custom SMTP and email templates must be configured and tested. See [ONBOARDING.md](docs/ONBOARDING.md) for rollout, security behavior, and verification.

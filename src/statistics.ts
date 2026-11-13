@@ -1,6 +1,6 @@
-import { pitchLocations, type Appearance, type PitchLocation, type PitchType, type Session, type SessionEvent } from './domain'
-import type { Snapshot } from './shared'
-import type { GCSummary } from './gamechanger'
+import { pitchLocations, type Appearance, type PitchLocation, type PitchType, type Session, type SessionEvent } from './domain.ts'
+import type { Snapshot } from './shared.ts'
+import type { GCSummary } from './gamechanger.ts'
 
 /** Keep historical pitchers available even after they leave the active roster. */
 export function statisticsPitchers(data: Pick<Snapshot, 'pitchers' | 'teamPitchers' | 'sessions' | 'gcSummaries'>, teamId: string) {

@@ -49,6 +49,10 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .status-details dt { color: var(--muted); font-size: 13px; }
 .status-details dd { text-align: right; font-size: 13px; margin: 0; }
 .sync-feedback { font-size: 13px; line-height: 1.6; margin: 12px 0 0; overflow-wrap: anywhere; }
+.admin-workspace { max-width: 1440px; margin: 16px auto; padding: 16px; }
+.admin-workspace summary { min-height: 48px; display: flex; align-items: center; cursor: pointer; }
+.admin-workspace form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.admin-workspace p { margin: 12px 0; }
 .sync-error { color: #702c20; background: #fbe4dd; border-color: #dca99a; }
 .sync-feedback.sync-error { padding: 10px; border-radius: 5px; }
 .status-details button { margin-top: 16px; border-top: 1px solid var(--line); border-radius: 0; width: 100%; justify-content: space-between; }
@@ -228,3 +232,4 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
   .is-practicing .score-label { font-size: 10px; letter-spacing: .6px; }
   .is-practicing .switch-button { font-size: 11px; }
 }
+.history-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; }

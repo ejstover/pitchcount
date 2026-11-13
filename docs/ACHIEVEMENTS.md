@@ -109,12 +109,23 @@ Keep the existing ALLOWED_ORIGINS and REQUEST_RATE_SALT secrets. Generate a rand
 ACHIEVEMENT_WORKER_SECRET and set it as an Edge Function secret. In Supabase Vault,
 store that same value as achievement_worker_secret and the full function endpoint
 as achievement_worker_url. Run `supabase/achievement-scheduler.sql` once to install
-the 15-minute cron job. That SQL never prints secret values. Re-running it replaces
+the every-minute worker schedule. That SQL never prints secret values. Re-running it replaces
 the named schedule without duplicating jobs.
 
-The scheduler evaluates at most 100 players per invocation, oldest due first.
-Opening a player workspace also requests that player's evaluation. Existing
-pitchers are queued by the migration, with no inferred goals or habits. Monitor
+Each worker evaluates at most 100 players per invocation, claiming one leased
+job at a time, oldest due first. It stops claiming after 20 seconds or 250 ms of
+measured synchronous validation/rules work, including failed work. This leaves
+CPU headroom between jobs; a single oversized replay still needs separate testing.
+The scheduler starts 16 workers per minute by
+default; the optional Vault value `achievement_worker_parallelism` accepts 1–64.
+Tune it using measured queue age and database capacity. A player workspace requests
+evaluation when its source is dirty or its calendar evaluation is due. The scale
+migration queues only linked players. It retains daily checks while calendar
+periods can change awards, and conservatively for every goal record. With no goals
+and all source weeks, months and seasons closed, a successfully confirmed job can
+sleep until source changes wake it. No activity or goal is inferred. Later rule
+changes require the bounded refresh procedure in [SCALABILITY.md](SCALABILITY.md#rollout-and-rollback)
+after old workers have drained. Monitor
 achievement_jobs.last_error, requested_at, evaluated_at, revision and
 processed_revision for failed/stale work. These diagnostics contain identifiers,
 not journal text or passwords.

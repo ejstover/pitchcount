@@ -1,0 +1,12 @@
+{
+  "name": "pitchwork-staging",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-11-12",
+  "vars": {
+    "APP_URL": "https://YOUR_STAGING_APP_HOST/",
+    "SUPABASE_URL": "https://YOUR_STAGING_PROJECT.supabase.co/",
+    "SUPABASE_PUBLISHABLE_KEY": "YOUR_STAGING_PUBLISHABLE_KEY"
+  }
+  // Set ACCOUNT_PROXY_SECRET through the provider's secret store. It must match
+  // the account function's secret. Never put it here or in a VITE_ variable.
+}

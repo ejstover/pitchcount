@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Coach } from './domain'
 import { accountEmail,validatePassword } from './account-validation'
+import {publicAccountAction} from './account-proxy'
+import {accountApiPath} from './account-gateway'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined
@@ -18,7 +20,7 @@ export const configurationError = transportError || (!validConfiguration()
   ? 'Login needs configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to public project credentials, then rebuild Pitchwork. See docs/AUTH.md.' : '')
 export const authStorageKey = `pitchwork-auth:${url ?? 'unconfigured'}`
 export const supabase = configurationError ? null : createClient(url!,key!,{ auth:{ storageKey:authStorageKey,flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true } })
-export type AccountProfile = Coach & ({role:'player';pitcherId:string|null}|{role:'admin'|'coach'|'viewer'})
+export type AccountProfile = Coach & {onboardingTeamId?:string|null} & ({role:'player';pitcherId:string|null}|{role:'admin'|'coach'|'viewer'})
 export class AccountError extends Error {
   constructor(message: string,public status = 0,public code = '') { super(message) }
 }
@@ -39,7 +41,7 @@ export function cacheProfile(profile: AccountProfile | null) {
 export async function accountApi<T = unknown>(action: string,payload: Record<string,unknown> = {}): Promise<T> {
   if (!supabase) throw new AccountError(configurationError)
   const headers: Record<string,string> = { apikey:key!,'Content-Type':'application/json' }
-  if (!['request','player_login'].includes(action)) {
+  if (!publicAccountAction(action)) {
     let timer: ReturnType<typeof setTimeout> | undefined
     const session = await Promise.race([supabase.auth.getSession(),new Promise<never>((_,reject) => {
       timer = setTimeout(() => reject(new AccountError('Could not renew your session. Sign in again when online.')),15000)
@@ -49,7 +51,7 @@ export async function accountApi<T = unknown>(action: string,payload: Record<str
   }
   let response: Response
   try {
-    response = await fetch(`${url}/functions/v1/accounts`,{method:'POST',headers,body:JSON.stringify({...payload,action}),signal:AbortSignal.timeout(12000)})
+    response = await fetch(publicAccountAction(action)?accountApiPath:`${url}/functions/v1/accounts`,{method:action==='profile'?'GET':'POST',headers,...(action==='profile'?{}:{body:JSON.stringify({...payload,action})}),signal:AbortSignal.timeout(12000)})
   } catch { throw new AccountError('Could not connect. Check your connection and retry.') }
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new AccountError(body.error ?? 'The request could not be completed.',response.status,body.code ?? '')
@@ -66,7 +68,12 @@ export async function signInWithPassword(email:string,password:string) {
     return
   }
   const {error} = await supabase.auth.signInWithPassword({email:accountEmail(email),password})
-  if (error) throw new AccountError(error.status === 429 ? 'Too many sign-in attempts. Wait a little before retrying.' : 'Could not sign in. Check your email and password, or ask the admin to approve your account.')
+  if (error) throw new AccountError(error.status === 429 ? 'Too many sign-in attempts. Wait a little before retrying.' : 'Could not sign in. Check your email and password, or reset your password.')
+}
+export async function acceptAccountSession(session:{access_token:string;refresh_token:string}) {
+  if(!supabase) throw new AccountError(configurationError)
+  const {error}=await supabase.auth.setSession(session)
+  if(error) throw new AccountError('Your account is ready. Sign in with your new credentials to continue.')
 }
 export function authRedirectError(): string {
   const query = new URLSearchParams(window.location.search)
