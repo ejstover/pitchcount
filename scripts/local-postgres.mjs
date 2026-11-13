@@ -5,6 +5,7 @@ import {promisify} from 'node:util'
 import {mkdir,readFile,writeFile} from 'node:fs/promises'
 import {randomBytes} from 'node:crypto'
 import {setTimeout as delay} from 'node:timers/promises'
+import pg from 'pg'
 const exec=promisify(execFile),name='pitchwork-scale-postgres',image='postgres:17.11-alpine'
 const action=process.argv[2]??'start'
 if(!['start','stop'].includes(action))throw new Error('Use start or stop.')
@@ -33,7 +34,7 @@ if(action==='stop') {
   await writeFile('.test-artifacts/scale-postgres.json',JSON.stringify(config),{mode:0o600})
   await writeFile('.test-artifacts/scale-postgres.env',`POSTGRES_DB=pitchwork_scale\nPOSTGRES_USER=postgres\nPOSTGRES_PASSWORD=${config.password}\nPOSTGRES_INITDB_ARGS=--data-checksums --auth-host=scram-sha-256\n`,{mode:0o600})
  }
- if(config.host!=='127.0.0.1'||config.port!==55432||config.database!=='pitchwork_scale'||!config.password)throw new Error('Invalid local test configuration.')
+ if(config.host!=='127.0.0.1'||config.port!==55432||config.database!=='pitchwork_scale'||config.user!=='postgres'||!config.password)throw new Error('Invalid local test configuration.')
  if(!existing) {
   const cpus=process.env.PITCHWORK_NATIVE_CPUS??'4',memory=process.env.PITCHWORK_NATIVE_MEMORY??'8g'
   if(!/^[1-8]$/.test(cpus)||!/^([2-9]|1[0-6])g$/.test(memory))throw new Error('Invalid local resource limits.')
@@ -41,7 +42,11 @@ if(action==='stop') {
  }else if(!existing.State.Running)await docker(['start',name])
  let ready=false
  for(let attempt=0;attempt<30;attempt++) {
-  try{await docker(['exec',name,'pg_isready','-U','postgres','-d','pitchwork_scale'],5000);ready=true;break}catch{await delay(1000)}
+  // The image's temporary initialization server can answer Unix-socket probes
+  // before the final server starts. Verify the published, authenticated TCP
+  // connection that the tests actually use, without exposing its password.
+  const probe=new pg.Client({...config,connectionTimeoutMillis:2000,application_name:'pitchwork-readiness'})
+  try{await probe.connect();await probe.query('select 1');ready=true;break}catch{await delay(1000)}finally{await probe.end().catch(()=>{})}
  }
  if(!ready)throw new Error('The local database did not become ready.')
  console.log('Isolated PostgreSQL 17 is ready on localhost:55432. Credentials are in the ignored test directory.')
