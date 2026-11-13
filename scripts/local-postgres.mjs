@@ -10,7 +10,16 @@ const action=process.argv[2]??'start'
 if(!['start','stop'].includes(action))throw new Error('Use start or stop.')
 async function docker(args,timeout=120000) {return (await exec('docker',args,{timeout,maxBuffer:2*1024*1024})).stdout.trim()}
 let existing
-try{existing=JSON.parse(await docker(['inspect',name]))[0]}catch(error){if(!error.stderr?.includes('No such object'))throw new Error('Docker is unavailable. Start Docker Desktop before the local tests.')}
+// An empty container list is the portable absence check. Docker versions differ
+// in the wording/status of `inspect` errors for a name that does not exist.
+try{
+ const ids=await docker(['container','ls','--all','--filter',`name=^/${name}$`,'--format','{{.ID}}'])
+ if(ids){if(!/^[a-f0-9]{12,64}$/.test(ids))throw new Error('Ambiguous test container identity.');existing=JSON.parse(await docker(['inspect',ids]))[0]}
+}catch(error){
+ // Listing/inspection errors occur before private test credentials are loaded.
+ const diagnostic=String(error.stderr??error.code??error.name??'Inspection failed').trim().slice(0,1200)
+ throw new Error(`Cannot inspect the isolated Docker test instance. Ensure Docker is available and running. ${diagnostic}`)
+}
 if(existing && (existing.Config.Labels?.['pitchwork.test']!=='scale'||existing.HostConfig.PortBindings?.['5432/tcp']?.[0]?.HostIp!=='127.0.0.1'||existing.HostConfig.PortBindings?.['5432/tcp']?.[0]?.HostPort!=='55432'))throw new Error('The named container is not the isolated test instance.')
 if(action==='stop') {
  if(existing?.State.Running)await docker(['stop',name])
